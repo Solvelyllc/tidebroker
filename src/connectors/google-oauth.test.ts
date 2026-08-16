@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { GOOGLE_JWKS_ENDPOINT, GOOGLE_TOKEN_ENDPOINT, GoogleOAuthTokenExchanger } from "./google-oauth.js";
+import { GOOGLE_JWKS_ENDPOINT, GOOGLE_TOKEN_ENDPOINT, GoogleOAuthTokenExchanger, googleAccessToken } from "./google-oauth.js";
 
 describe("Google OAuth exchanger", () => {
   it("validates the signed OIDC binding and keeps the code out of the token URL", async () => {
@@ -21,5 +21,17 @@ describe("Google OAuth exchanger", () => {
     const result = await new GoogleOAuthTokenExchanger({ clientId: "client-public", redirectUri: "http://127.0.0.1:8765/oauth/google/callback", fetch: fetcher as typeof fetch }).exchange({ authorizationCode: "authorization-code-canary", pkceVerifier: "v".repeat(43), redirectTargetId: "google_loopback" });
     expect(result).toMatchObject({ issuer: "https://accounts.google.com", audience: "client-public", nonce: "non_opaque", refreshToken: "refresh-canary" });
     expect(seen).toEqual([GOOGLE_TOKEN_ENDPOINT, GOOGLE_JWKS_ENDPOINT]);
+  });
+
+  it("cancels an oversized streamed token response before buffering the body", async () => {
+    let pulls = 0; let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(40 * 1024)); },
+      cancel() { cancelled = true; },
+    });
+    const fetcher = (async () => new Response(body, { status: 200 })) as typeof fetch;
+    await expect(googleAccessToken({ kind: "oauth2", refreshToken: "refresh-canary", clientId: "client-public" }, fetcher)).rejects.toThrow("GOOGLE_OAUTH_RESPONSE_INVALID");
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThan(10);
   });
 });

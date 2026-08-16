@@ -14,11 +14,26 @@ function hostActor(context: HostActorContext): string | null { return actor(cont
 function key(toolName: string, toolCallId: string): string { return `${toolName}\0${toolCallId}`; }
 function safe(value: unknown, fallback: string): string { return typeof value === "string" && value.length > 0 ? value.replace(/[\u0000-\u001f\u007f]/gu, " ").slice(0, 120) : fallback; }
 
+const CALENDAR_FIELDS = ["summary", "description", "location", "start", "end", "timeZone", "attendees"] as const;
+function calendarProposal(params: Record<string, unknown>): string {
+  const proposed: Record<string, unknown> = {};
+  for (const name of CALENDAR_FIELDS) {
+    if (!Object.hasOwn(params, name)) continue;
+    const value = params[name];
+    proposed[name] = typeof value === "string" || Array.isArray(value) && value.every((item) => typeof item === "string") ? value : "(invalid value)";
+  }
+  return JSON.stringify(proposed, null, 2);
+}
+
 function description(toolName: string, params: Record<string, unknown>): string {
   if (toolName === "google_gmail_message_send") return `Send email to ${Array.isArray(params.to) ? params.to.filter((item): item is string => typeof item === "string").slice(0, 10).join(", ") : "(invalid recipients)"} with subject “${safe(params.subject, "(no subject)")}”. Plain-text body (${typeof params.textBody === "string" ? params.textBody.length : 0} characters):\n\n${typeof params.textBody === "string" ? params.textBody : "(invalid body)"}`;
-  if (toolName === "google_calendar_event_create") return `Create Calendar event “${safe(params.summary, "(untitled)")}” from ${safe(params.start, "the supplied start")} to ${safe(params.end, "the supplied end")}.`;
-  if (toolName === "google_calendar_event_update") return `Update Calendar event ${safe(params.eventId, "(invalid id)")} using exactly the proposed fields.`;
-  return `Delete Calendar event ${safe(params.eventId, "(invalid id)")}.`;
+  if (toolName === "google_calendar_event_create") {
+    const attendeeCount = Array.isArray(params.attendees) ? params.attendees.length : 0;
+    const notification = attendeeCount === 0 ? "No attendee email notifications will be sent." : `Google will email invitations to the ${attendeeCount} attendee(s) listed below.`;
+    return `Create Calendar event “${safe(params.summary, "(untitled)")}”. ${notification} Exact proposed fields:\n\n${calendarProposal(params)}`;
+  }
+  if (toolName === "google_calendar_event_update") return `Update Calendar event ${safe(params.eventId, "(invalid id)")}. No attendee email notifications will be sent. Exact proposed fields:\n\n${calendarProposal(params)}`;
+  return `Delete Calendar event ${safe(params.eventId, "(invalid id)")}. No attendee email notifications will be sent.`;
 }
 
 /** Hook result for OpenClaw's durable, operator-authenticated plugin approval UI. */

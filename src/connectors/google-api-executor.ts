@@ -1,4 +1,5 @@
 import type { CredentialMaterial } from "../credentials/store.js";
+import { readBoundedResponseText } from "./bounded-response.js";
 import { googleAccessToken } from "./google-oauth.js";
 
 export interface GoogleDirectExecutionOptions {
@@ -34,14 +35,6 @@ function fixedGoogleUrl(path: string, query?: URLSearchParams): URL {
   if (url.origin !== GOOGLE_API_ORIGIN) throw new Error("GOOGLE_DIRECT_REQUEST_INVALID");
   if (query) url.search = query.toString();
   return url;
-}
-
-async function boundedText(response: Response, maxResponseBytes: number): Promise<string> {
-  const contentLength = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) throw new Error("GOOGLE_DIRECT_RESPONSE_INVALID");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > maxResponseBytes) throw new Error("GOOGLE_DIRECT_RESPONSE_INVALID");
-  return text;
 }
 
 function validateJsonBounds(value: unknown, depth = 0, state = { nodes: 0 }): void {
@@ -83,7 +76,7 @@ export async function googleApiRequest(options: GoogleDirectExecutionOptions, ma
     signal: AbortSignal.timeout(runtime.timeoutMs),
   });
   if (!response.ok) throw new Error("GOOGLE_DIRECT_OPERATION_FAILED");
-  const text = await boundedText(response, runtime.maxResponseBytes);
+  const text = await readBoundedResponseText(response, runtime.maxResponseBytes, "GOOGLE_DIRECT_RESPONSE_INVALID");
   if (text.length === 0 && input.allowEmpty === true) return null;
   try {
     const value = JSON.parse(text) as unknown;

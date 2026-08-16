@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGoogleGogCalendarListOperation } from "./google-gog.js";
-import { createGoogleCalendarWriteOperations, GOOGLE_CALENDAR_EVENT_CREATE_ACTION, GOOGLE_CALENDAR_EVENT_DELETE_ACTION } from "./google-calendar-write.js";
+import { createGoogleCalendarWriteOperations, GOOGLE_CALENDAR_EVENT_CREATE_ACTION, GOOGLE_CALENDAR_EVENT_DELETE_ACTION, GOOGLE_CALENDAR_EVENT_UPDATE_ACTION } from "./google-calendar-write.js";
 import { createGoogleGmailOperations, GOOGLE_GMAIL_MESSAGE_GET_ACTION, GOOGLE_GMAIL_MESSAGE_SEND_ACTION, GOOGLE_GMAIL_MESSAGES_SEARCH_ACTION } from "./google-gmail.js";
 import { googleApiRequest } from "./google-api-executor.js";
 
@@ -31,17 +31,21 @@ describe("direct Google execution", () => {
   });
 
   it("creates and deletes Calendar events with exact fixed paths and bodies", async () => {
-    const { calls, fetcher } = sequential(tokenResponse(), new Response(JSON.stringify({ id: "event_12345", status: "confirmed" }), { status: 200 }), tokenResponse(), new Response(null, { status: 204 }));
+    const { calls, fetcher } = sequential(tokenResponse(), new Response(JSON.stringify({ id: "event_12345", status: "confirmed" }), { status: 200 }), tokenResponse(), new Response(JSON.stringify({ id: "event_12345", status: "confirmed" }), { status: 200 }), tokenResponse(), new Response(null, { status: 204 }));
     const operations = createGoogleCalendarWriteOperations({ backend: "direct", direct: { fetch: fetcher } });
     const create = operations.find((item) => item.action === GOOGLE_CALENDAR_EVENT_CREATE_ACTION)!;
+    const update = operations.find((item) => item.action === GOOGLE_CALENDAR_EVENT_UPDATE_ACTION)!;
     const remove = operations.find((item) => item.action === GOOGLE_CALENDAR_EVENT_DELETE_ACTION)!;
     await create.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { summary: "Approved", start: "2026-08-16T12:00:00Z", end: "2026-08-16T12:30:00Z", attendees: ["person@example.test"] });
+    await update.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { eventId: "event_12345", location: "Room 2" });
     await remove.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { eventId: "event_12345" });
     expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all");
     expect(calls[1]!.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ summary: "Approved", start: { dateTime: "2026-08-16T12:00:00Z" }, end: { dateTime: "2026-08-16T12:30:00Z" }, attendees: [{ email: "person@example.test" }] });
-    expect(calls[3]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/event_12345?sendUpdates=all");
-    expect(calls[3]!.init?.method).toBe("DELETE");
+    expect(calls[3]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/event_12345?sendUpdates=none");
+    expect(calls[3]!.init?.method).toBe("PATCH");
+    expect(calls[5]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/event_12345?sendUpdates=none");
+    expect(calls[5]!.init?.method).toBe("DELETE");
   });
 
   it("searches and reads Gmail through strict bounded projections", async () => {
@@ -78,6 +82,18 @@ describe("direct Google execution", () => {
       const { fetcher } = sequential(tokenResponse(), response);
       await expect(googleApiRequest({ fetch: fetcher, maxResponseBytes: 1024 }, material, { method: "GET", path: "/calendar/v3/calendars/primary/events", assertCredentialActive: async () => {}, markProviderCallStarted: () => {} })).rejects.toThrow(/^GOOGLE_DIRECT_/u);
     }
+  });
+
+  it("cancels a streamed provider response as soon as the byte limit is crossed", async () => {
+    let pulls = 0; let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(600)); },
+      cancel() { cancelled = true; },
+    });
+    const { fetcher } = sequential(tokenResponse(), new Response(body, { status: 200 }));
+    await expect(googleApiRequest({ fetch: fetcher, maxResponseBytes: 1024 }, material, { method: "GET", path: "/calendar/v3/calendars/primary/events", assertCredentialActive: async () => {}, markProviderCallStarted: () => {} })).rejects.toThrow("GOOGLE_DIRECT_RESPONSE_INVALID");
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThan(10);
   });
 
   it("rechecks credential generation after refresh and before direct provider I/O", async () => {

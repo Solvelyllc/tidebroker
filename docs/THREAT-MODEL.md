@@ -1,15 +1,19 @@
 # Threat model
 
 > **Status:** This is the release-gating threat model for the target production
-> broker. Version `1.1.1` implements the operational controls described in
+> broker. Version `1.1.2` implements the operational controls described in
 > `SECURITY-ARCHITECTURE.md`, including trusted workspace binding, authenticated
 > credential-worker grants, OAuth custody, audit delivery contracts, and
 > revocation, protected local transport, and durable file adapters. OS/container
 > deployment, a real-provider smoke test, and MCP schema quarantine remain gates.
 
 `npm publish` enforces these three gates through `npm run release:check`. The
-check requires owner-only evidence bound to the exact source commit. No such
-evidence is included in the repository, so public release remains blocked.
+check requires owner-only evidence files bound to the exact source commit and
+verifies each file's SHA-256, gate identity, timestamp, and required check set.
+No such evidence is included in the repository, so public release remains
+blocked. ClawHub is not currently a Tidebroker distribution channel; before it
+becomes one, publishing must be restricted to a trusted workflow because its
+packer intentionally ignores npm lifecycle scripts.
 
 ## Scope and security goals
 

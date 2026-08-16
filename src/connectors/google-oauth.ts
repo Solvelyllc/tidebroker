@@ -2,6 +2,7 @@ import { createPublicKey, verify as verifySignature } from "node:crypto";
 import type { JsonWebKey as NodeJsonWebKey } from "node:crypto";
 import type { OAuthTokenExchanger, OAuthTokenExchangeResult } from "../credentials/oauth.js";
 import type { CredentialMaterial } from "../credentials/store.js";
+import { readBoundedResponseText } from "./bounded-response.js";
 
 export const GOOGLE_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -23,10 +24,7 @@ function object(value: unknown): Record<string, unknown> {
 }
 
 async function boundedJson(response: Response, maxBytes: number): Promise<Record<string, unknown>> {
-  const contentLength = Number(response.headers.get("content-length") ?? "0");
-  if (contentLength > maxBytes) throw new Error("GOOGLE_OAUTH_RESPONSE_INVALID");
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("GOOGLE_OAUTH_RESPONSE_INVALID");
+  const text = await readBoundedResponseText(response, maxBytes, "GOOGLE_OAUTH_RESPONSE_INVALID");
   try { return object(JSON.parse(text) as unknown); } catch { throw new Error("GOOGLE_OAUTH_RESPONSE_INVALID"); }
 }
 

@@ -231,6 +231,12 @@ execution. If the provider may have accepted a write but durable outcome or
 success-audit delivery cannot be confirmed, it returns non-retriable
 `WORKER_OUTCOME_UNKNOWN`; reconcile the journal and provider state instead of retrying.
 
+Calendar create approvals display every proposed field and the complete attendee
+list; create is the only Calendar write that sends attendee invitations. Update
+and delete use `sendUpdates=none` because the approval hook cannot safely reveal
+all existing attendees who Google might otherwise notify. Update approvals still
+display every proposed field, including attendee-list changes.
+
 Google consent uses `calendar.events` plus read-only CalendarList and Calendars
 metadata scopes required by gog's timezone/calendar resolution. Existing read-only
 connections must reconnect once after upgrading; no deployment may silently
@@ -257,6 +263,22 @@ deployment project and reconnect once with `gmail.readonly` and `gmail.send`.
 Search is capped at 25 results. Direct and `gog` responses are bounded, wrapped
 as untrusted, and projected through backend/command-specific closed schemas.
 Unknown `gog` fields are rejected. Attachments are not downloaded or exposed.
+Direct Google and OAuth HTTP bodies are consumed through a streaming byte limiter
+that cancels the response as soon as the configured threshold is crossed.
+
+## Release evidence and provenance
+
+`TIDEBROKER_RELEASE_EVIDENCE_PATH` must name an owner-only summary JSON file.
+Each gate entry names a separate owner-only evidence JSON file and its SHA-256.
+The checker reads and hashes those files, binds them to the exact source commit,
+requires recent timestamps, and verifies gate-specific check identifiers. A hash
+string without the referenced evidence file is rejected.
+
+GitHub release immutability is enabled for the repository. Create future releases
+as drafts, attach all intended assets, and publish only after the release check
+passes. Publication locks the tag and assets and creates GitHub's release
+attestation. The setting is not retroactive; releases before `v1.1.2` do not gain
+this guarantee.
 
 Sending accepts address-only recipients, one subject, and a bounded plain-text
 body. It requires a critical `allow-once` approval bound to the exact requester,

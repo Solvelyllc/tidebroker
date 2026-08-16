@@ -29,6 +29,21 @@ describe("Google write approvals", () => {
     expect(() => consumeGoogleWriteApproval("google_gmail_message_send", "call-email", { ...params, textBody: "Changed body" }, host)).toThrow("GOOGLE_WRITE_APPROVAL_REQUIRED");
   });
 
+  it("shows every Calendar field, attendee, and notification effect", () => {
+    const params = { summary: "Launch", description: "Exact agenda", location: "Room 1", start: "2026-08-17T15:00:00Z", end: "2026-08-17T15:30:00Z", timeZone: "America/Indiana/Indianapolis", attendees: ["one@example.com", "two@example.com"] };
+    const create = requireGoogleWriteApproval({ toolName: "google_calendar_event_create", toolCallId: "call-calendar-create", params }, context) as { requireApproval: { description: string } };
+    expect(create.requireApproval.description).toContain("email invitations");
+    for (const value of ["Exact agenda", "Room 1", "America/Indiana/Indianapolis", "one@example.com", "two@example.com"]) expect(create.requireApproval.description).toContain(value);
+
+    const update = requireGoogleWriteApproval({ toolName: "google_calendar_event_update", toolCallId: "call-calendar-update", params: { eventId: "event_12345", attendees: ["new@example.com"], location: "Room 2" } }, context) as { requireApproval: { description: string } };
+    expect(update.requireApproval.description).toContain("No attendee email notifications");
+    expect(update.requireApproval.description).toContain("new@example.com");
+    expect(update.requireApproval.description).toContain("Room 2");
+
+    const remove = requireGoogleWriteApproval({ toolName: "google_calendar_event_delete", toolCallId: "call-calendar-delete", params: { eventId: "event_12345" } }, context) as { requireApproval: { description: string } };
+    expect(remove.requireApproval.description).toContain("No attendee email notifications");
+  });
+
   it("represents an outcome-unknown write as an explicit non-retriable result", () => {
     expect(nonRetriableOutcomeUnknown({ code: "WORKER_OUTCOME_UNKNOWN", retryable: false })).toMatchObject({ details: { outcome: "unknown", retryable: false, code: "WORKER_OUTCOME_UNKNOWN" } });
   });
