@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open, mkdir, lstat, realpath, rename, rmdir, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -21,15 +22,15 @@ export async function ensurePrivateDirectory(path: string): Promise<string> {
 export async function readJsonFile(path: string, maxBytes = 4 * 1024 * 1024): Promise<unknown | null> {
   let handle;
   try {
-    const pathInfo = await lstat(path);
-    if (pathInfo.isSymbolicLink()) throw new Error("DURABLE_FILE_INVALID");
-    handle = await open(path, "r");
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const info = await handle.stat();
-    if (!info.isFile() || info.size > maxBytes || (info.mode & 0o077) !== 0) throw new Error("DURABLE_FILE_INVALID");
+    if (!info.isFile() || info.size > maxBytes || (info.mode & 0o077) !== 0 ||
+      (typeof process.getuid === "function" && info.uid !== process.getuid())) throw new Error("DURABLE_FILE_INVALID");
     const content = await handle.readFile({ encoding: "utf8" });
     return JSON.parse(content) as unknown;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") throw new Error("DURABLE_FILE_INVALID");
     throw error;
   } finally {
     await handle?.close();

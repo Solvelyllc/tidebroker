@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -14,8 +14,15 @@ import { FileCredentialMetadataReader, FileCredentialRecordBackend } from "./cre
 import { FileSubjectMappingStore, FileWorkspaceMembershipStore, writeSubjectMappings, writeWorkspaceMemberships } from "./identity.js";
 import { FileOAuthStateBackend } from "./oauth.js";
 import { FileGrantReplayStore } from "./replay.js";
+import { readJsonFile } from "./files.js";
 
 describe("durable deployment adapters", () => {
+  it("rejects symlinked durable JSON without following it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "durable-link-")); const target = join(root, "target.json"); const link = join(root, "state.json");
+    await writeFile(target, "{}\n", { mode: 0o600 }); await symlink(target, link);
+    await expect(readJsonFile(link)).rejects.toThrow("DURABLE_FILE_INVALID");
+  });
+
   it("persists exact subject and workspace mappings in private files", async () => {
     const root = await mkdtemp(join(tmpdir(), "actor-durable-"));
     const actor = trustedActorFromHostContext({ requesterSenderId: "CaseSensitiveSubject", messageChannel: "webchat" });

@@ -1,9 +1,9 @@
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkCredentialWorkerService, createCredentialWorkerService, loadCredentialWorkerServiceConfig, validateCredentialWorkerServiceConfig } from "./bootstrap.js";
-import { readSecureKeyFile } from "./secure-key-files.js";
+import { readSecureKeyFile, readSecureTextFile } from "./secure-key-files.js";
 import { fileSha256 } from "../../test-fixtures/fake-gog-helper.js";
 
 describe("credential worker bootstrap", () => {
@@ -28,6 +28,14 @@ describe("credential worker bootstrap", () => {
     const root = await mkdtemp(join(tmpdir(), "worker-key-mode-")); const keyPath = join(root, "bad.key");
     await writeFile(keyPath, Buffer.alloc(32, 3), { mode: 0o600 }); await chmod(keyPath, 0o644);
     await expect(readSecureKeyFile(keyPath)).rejects.toThrow("SECURE_KEY_FILE_INVALID");
+  });
+
+  it("rejects symlinked key files without following them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-key-link-")); const target = join(root, "target.key"); const link = join(root, "grant.key"); const textTarget = join(root, "client-id"); const textLink = join(root, "client-id-link");
+    await writeFile(target, Buffer.alloc(32, 6), { mode: 0o600 }); await symlink(target, link);
+    await writeFile(textTarget, "synthetic-client-id", { mode: 0o600 }); await symlink(textTarget, textLink);
+    await expect(readSecureKeyFile(link)).rejects.toThrow("SECURE_KEY_FILE_INVALID");
+    await expect(readSecureTextFile(textLink)).rejects.toThrow("SECURE_TEXT_FILE_INVALID");
   });
 
   it("accepts an explicitly configured external gog runtime for the OAuth Google worker", async () => {

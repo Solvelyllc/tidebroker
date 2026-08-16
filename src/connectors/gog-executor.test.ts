@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -25,6 +25,26 @@ describe("gog subprocess boundary", () => {
     const root = await mkdtemp(join(tmpdir(), "gog-hash-")); const executablePath = await createFakeGog(root); const executableSha256 = await fileSha256(executablePath);
     await writeFile(executablePath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     await expect(runGogOAuthCommand({ executablePath, executableSha256, configRoot: root, fetch: fetcher as typeof fetch }, material, { command: "gmail.get", mutating: false, argv: ["gmail", "get", "msg_1"], assertCredentialActive: async () => {}, markProviderCallStarted: () => {} })).rejects.toThrow("GOG_EXECUTABLE_INVALID");
+  });
+
+  it.runIf(process.platform === "linux")("executes the verified inode even if its configured path is replaced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gog-inode-")); const executablePath = await createFakeGog(root); const executableSha256 = await fileSha256(executablePath);
+    const originalPath = join(root, "verified-gog");
+    const result = await runGogOAuthCommand({ executablePath, executableSha256, configRoot: root, fetch: fetcher as typeof fetch }, material, {
+      command: "gmail.get", mutating: false, argv: ["gmail", "get", "msg_1"],
+      assertCredentialActive: async () => {
+        await rename(executablePath, originalPath);
+        await writeFile(executablePath, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
+      },
+      markProviderCallStarted: () => {},
+    });
+    expect(result).toMatchObject({ id: "msg_456" });
+  });
+
+  it("rejects a symlinked executable even when its target hash matches", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gog-symlink-")); const target = await createFakeGog(root); const executableSha256 = await fileSha256(target); const link = join(root, "gog-link");
+    await symlink(target, link);
+    await expect(runGogOAuthCommand({ executablePath: link, executableSha256, configRoot: root, fetch: fetcher as typeof fetch }, material, { command: "gmail.get", mutating: false, argv: ["gmail", "get", "msg_1"], assertCredentialActive: async () => {}, markProviderCallStarted: () => {} })).rejects.toThrow("GOG_EXECUTABLE_INVALID");
   });
 
   it("rejects attempts to relax the Gmail send boundary", async () => {
