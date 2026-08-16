@@ -49,4 +49,12 @@ if (entry.default?.id !== manifest.id || typeof entry.default?.register !== "fun
   throw new Error("built plugin entry does not match the manifest");
 }
 
+const packed = JSON.parse((await import("node:child_process")).execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root, encoding: "utf8" }))[0];
+for (const file of packed.files ?? []) {
+  const name = String(file.path);
+  if (/(?:^|\/)(?:vendor|test-fixtures|runtime)(?:\/|$)/iu.test(name) || /(?:^|\/)gog(?:\.exe)?$/iu.test(name) || /\.go$/iu.test(name) || /\.(?:key|pem|p12|pfx)$/iu.test(name)) {
+    throw new Error(`package must not bundle gog/source/runtime material: ${name}`);
+  }
+}
+
 process.stdout.write(`Plugin package ${manifest.id}@${manifest.version} is internally valid.\n`);

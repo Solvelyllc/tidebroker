@@ -22,7 +22,7 @@ Version `1.0.0` implements exact deployment-local opaque subject mapping; a
 branded host-trusted selected-workspace binding with repeated membership checks;
 authenticated short-lived, action- and generation-bound worker grants with replay
 protection; encrypted credential and OAuth custody; audit sink integration;
-revocation generation and invalidation hooks; and a fixed read-only Google/gog
+revocation generation and invalidation hooks; and fixed Google Workspace
 Calendar connector operation; a protected bounded Unix-socket worker protocol;
 and durable atomic adapters for identity, membership, encrypted records, metadata,
 OAuth state, replay, and audit. The earlier identity, account-policy, MCP, CLI,
@@ -33,7 +33,8 @@ loading, health checks, stale-socket recovery, protected dedicated-group socket
 mode for separate OS identities, and deployment-gated OpenClaw Calendar tool
 registration. It also includes a loopback-only `form_post` Google OAuth connection,
 signed OIDC claim validation, worker-private dynamic account bindings, fixed-path
-`gog` execution for Calendar and Gmail, and local/provider revocation.
+execution for Calendar and Gmail through a fail-closed direct or external-`gog`
+backend, and local/provider revocation.
 
 OS/container identities and supervision, production database/KMS alternatives,
 Google OAuth client registration and the selected-workspace source remain
@@ -170,14 +171,15 @@ adapter must never concatenate a shell command, run through `sh -c`, accept an
 executable path, forward arbitrary flags, or use user/model data as environment
 variable names.
 
-Inputs are schema validated, length limited, and encoded as data. Where a CLI
-cannot safely distinguish data from options, the connector uses an end-of-options
-delimiter or stdin. The `gog` child receives only locale, private home, and a
-freshly minted access token in its explicit environment; it inherits no ambient
-process environment. The binary has a baked command policy and each invocation
-also selects one exact command. Output is parsed to a bounded structure;
-terminal control characters, credential-like fields, debug dumps, and raw stderr
-are removed before reaching the model or logs.
+Inputs are schema validated, length limited, and encoded as data. Direct mode
+permits only fixed Google API origins and paths, disables redirects, puts access
+tokens only in the Authorization header, and applies byte/structure bounds plus
+strict Calendar and Gmail projections. Gmail HTML, attachments, raw MIME, and
+arbitrary headers are omitted. External-gog mode gives the child only locale,
+private home, and a freshly minted access token in its explicit environment; it
+inherits no ambient process environment. The binary and config root are fixed by
+the worker administrator. Both adapters return bounded structures and stable
+errors without raw provider bodies, tokens, argv, or stderr.
 
 ## MCP connector safety
 

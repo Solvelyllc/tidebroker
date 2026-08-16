@@ -12,7 +12,7 @@ There is no global, last-used, other-user, or ambient credential fallback.
 
 ## Status
 
-Version 1.0 adds an end-to-end Google connection and revocation workflow while keeping the installed plugin
+Version 1.1 adds selectable direct-Google and external-`gog` execution while keeping the installed plugin
 fail closed until a deployment supplies its trusted stores, worker, and host workspace
 adapter. It currently provides:
 
@@ -31,7 +31,7 @@ adapter. It currently provides:
 - encrypted OAuth/gog-profile custody, single-use OAuth state, PKCE, signed OIDC validation, and revocation;
 - a one-shot loopback-only Google connection flow whose authorization response uses POST;
 - worker-private account discovery authenticated by the same short-lived grants as execution;
-- fixed Google Calendar and Gmail operations executed by a pinned, baked-safety-profile `gog` binary;
+- fixed Google Calendar and Gmail operations executed either directly over bounded Google APIs or by an administrator-provisioned `gog` binary;
 - bounded Gmail search/read that marks provider content untrusted, plus exact-approval plain-text sending;
 - closed-schema audit events, sink readiness, and invalidation hooks;
 - threat-model and security-architecture documentation;
@@ -72,7 +72,7 @@ Public SDK modules are available from `@solvely/tidebroker/sdk`:
 - `durable`: private atomic credential, metadata, subject, membership, OAuth,
   replay, and audit adapters;
 - `worker`: authenticated grants, replay prevention, and isolated dispatch;
-- `connectors`: the first fixed Google/gog operation;
+- `connectors`: fixed Google Calendar and Gmail operations with worker-owned backend selection;
 - `audit`: closed-schema events and sink contracts. Callers must
   pass registry-issued opaque identifiers, never secrets or provider data.
 
@@ -101,17 +101,25 @@ The CLI adapter:
 
 Connector authors must supply a provider-aware output sanitizer. Credentials belong in the actor-specific worker's protected store, never in argv or caller-provided environment values.
 
-## Google/gog connector
+## Google execution backends
 
-The Google operations expose only their typed Calendar and Gmail surfaces. The
-worker refreshes its encrypted OAuth credential and passes the resulting
-short-lived access token only through `gog`'s closed child environment. Tokens,
-provider account identity, and message bodies never enter argv; Gmail bodies use
-stdin. The fixed-path binary is built from `scripts/gog-safety-profile.yaml`, so
-only the reviewed Calendar/Gmail commands exist even if runtime flags are changed.
-Each invocation also applies an exact-command runtime allowlist, read-only and
-Gmail-no-send guards where applicable, no-input mode, untrusted-content wrapping,
-bounded JSON parsing, and secret-field stripping. There is no generic command bridge.
+The worker administrator explicitly selects exactly one Google Workspace backend.
+There is no automatic fallback and the backend is never model-visible.
+
+- `direct` uses fixed `https://www.googleapis.com` paths, header-only access tokens,
+  redirects disabled, bounded JSON, and strict Calendar/Gmail projections. Gmail
+  HTML, attachments, raw MIME, and arbitrary headers are never returned.
+- `gog` invokes an externally provisioned, fixed-path binary with a private state
+  root, closed child environment, exact command allowlists, bounded JSON, and Gmail
+  bodies over stdin.
+
+Tidebroker does **not** bundle the `gog` binary or its source. The included
+`scripts/gog-safety-profile.yaml` is only a reproducible recipe for administrators
+who choose that backend. Both modes retain identical actor/account isolation,
+short-lived grants, write approvals, audit, replay protection, and revocation.
+In direct mode, the Calendar `today` filter uses the current UTC calendar day;
+deployments needing a local-day policy should translate that intent before invoking
+the fixed operation rather than accepting a model-supplied time zone.
 
 OAuth connection is a one-shot worker-owned loopback UI. The Google response uses
 `form_post`, so authorization codes are received in a bounded POST body; code and

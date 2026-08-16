@@ -13,7 +13,7 @@ async function fakeGog() {
   const root = await mkdtemp(join(tmpdir(), "gmail-gog-"));
   const executablePath = await createFakeGog(root);
   const fetcher = vi.fn(async () => token());
-  return { options: { executablePath, configRoot: root, fetch: fetcher as typeof fetch }, fetcher };
+  return { options: { backend: "gog" as const, gog: { executablePath, configRoot: root, fetch: fetcher as typeof fetch } }, fetcher };
 }
 
 describe("Google Gmail gog connector", () => {

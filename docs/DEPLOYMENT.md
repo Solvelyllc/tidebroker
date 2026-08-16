@@ -1,6 +1,6 @@
 # Production activation
 
-Version 1.0 provides the worker executable, deployment-gated OpenClaw tools, and a
+Version 1.1 provides the worker executable, deployment-gated OpenClaw tools, and a
 one-shot Google connection/revocation workflow. Key material must be provisioned
 outside chat through owner-controlled files or an OS secret manager.
 
@@ -41,9 +41,10 @@ The configuration contains paths and opaque identifiers only.
     "clientSecretFile": "/run/tidebroker-worker-secrets/google-client-secret",
     "redirectUri": "http://127.0.0.1:8765/oauth/google/callback"
   },
-  "gog": {
-    "executablePath": "/usr/local/lib/tidebroker/gog-safe",
-    "configRoot": "/var/lib/tidebroker-worker/gog"
+  "googleExecution": {
+    "backend": "direct",
+    "timeoutMs": 30000,
+    "maxResponseBytes": 1048576
   },
   "limits": {
     "maxFrameBytes": 1048576,
@@ -62,10 +63,28 @@ must be distinct files and distinct key material.
 The Google client files are owner-only, single-line secure text files. They are
 read only by the worker. The configured redirect URI must be the exact loopback
 URI registered for the Google OAuth client. Enable the Google Calendar API and
-configure the consent screen before connecting. OAuth-backed Google workers require
-the fixed `gog.executablePath` and private `gog.configRoot`. Build that binary from
-the pinned upstream source with `scripts/gog-safety-profile.yaml`; do not use PATH
-discovery or a general-purpose stock binary in production.
+configure the consent screen before connecting. Direct mode needs no Google CLI.
+It permits only baked Google API origins and paths, sends access tokens only in the
+Authorization header, disables redirects, and strictly bounds/projects responses.
+
+To use an externally installed `gog` instead, replace `googleExecution` with:
+
+```json
+{
+  "googleExecution": {
+    "backend": "gog",
+    "executablePath": "/usr/local/lib/tidebroker/gog-safe",
+    "configRoot": "/var/lib/tidebroker-worker/gog",
+    "timeoutMs": 30000,
+    "maxOutputBytes": 1048576
+  }
+}
+```
+
+Tidebroker bundles no `gog` executable or source. Administrators choosing this mode
+must provision the absolute executable path and private config root themselves. The
+included safety-profile YAML is a build recipe, not a vendored CLI. Invalid or
+ambiguous backend configurations fail startup; Tidebroker never falls back between modes.
 
 The shared socket directory is pre-created by the administrator, owned by the
 worker, assigned to a dedicated group containing only the worker and Gateway,

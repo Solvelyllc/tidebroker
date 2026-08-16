@@ -36,11 +36,11 @@ the exact opaque subject/workspace and a fixed discovery handle. The result is
 only the matching non-secret account/handle/generation policy record. The Gateway
 cannot list all bindings and cannot read the worker-private binding file.
 
-Google Workspace operations require a fixed-path `gog` binary compiled with the
-repository's baked safety profile. The worker refreshes the encrypted OAuth record
-and injects the short-lived access token into a closed child environment recognized
-by `gog`; it never persists the token in gog state or places it in argv. The child
-inherits no ambient cloud, account, HOME, or PATH state. Message bodies use stdin.
-Runtime exact-command flags, read-only/Gmail-no-send guards, bounded output, and
-secret-field stripping provide defense in depth. Pre-provisioned opaque gog profiles
-remain supported for compatibility, but are not the production OAuth path.
+Google Workspace operations use exactly one worker-owned backend. Direct mode calls
+only fixed Google HTTPS origins and baked paths, places the short-lived access token
+only in the Authorization header, disables redirects, and bounds and projects every
+response. External-gog mode invokes a fixed absolute executable with a private root,
+closed environment, exact-command flags, bounded output, and message bodies over
+stdin. Tidebroker bundles no gog executable or source. Invalid configuration fails
+startup and there is no cross-backend fallback. Credential redemption, grants,
+replay prevention, approvals, audit, and revocation remain outside both adapters.

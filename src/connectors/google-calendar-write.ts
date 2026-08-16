@@ -1,7 +1,8 @@
 import type { CredentialMaterial } from "../credentials/store.js";
 import type { CredentialGrantClaims } from "../worker/grant.js";
 import type { WorkerOperation } from "../worker/worker.js";
-import { runGogOAuthCommand, type GogExecutionOptions } from "./gog-executor.js";
+import { runGogOAuthCommand } from "./gog-executor.js";
+import { boundedExternalText, externalRecord, googleApiRequest, type GoogleWorkspaceExecutionOptions } from "./google-api-executor.js";
 import { GOOGLE_GOG_CONNECTOR_ID } from "./google-gog.js";
 
 export const GOOGLE_CALENDAR_EVENT_CREATE_ACTION = "calendar.events.create" as const;
@@ -82,14 +83,37 @@ function fieldArgs(input: CalendarEventFields): string[] {
   ];
 }
 
-export function createGoogleCalendarWriteOperations(options?: GogExecutionOptions): readonly WorkerOperation[] {
+function directBody(input: CalendarEventFields): Record<string, unknown> {
+  return {
+    ...(input.summary === undefined ? {} : { summary: input.summary }),
+    ...(input.description === undefined ? {} : { description: input.description }),
+    ...(input.location === undefined ? {} : { location: input.location }),
+    ...(input.start === undefined ? {} : { start: { dateTime: input.start, ...(input.timeZone === undefined ? {} : { timeZone: input.timeZone }) } }),
+    ...(input.end === undefined ? {} : { end: { dateTime: input.end, ...(input.timeZone === undefined ? {} : { timeZone: input.timeZone }) } }),
+    ...(input.attendees === undefined ? {} : { attendees: input.attendees.map((email) => ({ email })) }),
+  };
+}
+
+function directResult(value: unknown): Readonly<Record<string, unknown>> {
+  const record = externalRecord(value);
+  if (!record) throw new Error("GOOGLE_DIRECT_RESPONSE_INVALID");
+  const id = boundedExternalText(record.id, 1024);
+  if (!id) throw new Error("GOOGLE_DIRECT_RESPONSE_INVALID");
+  return Object.freeze({
+    source: "google-api:calendar",
+    untrusted: true,
+    result: Object.freeze({ id, ...(boundedExternalText(record.status, 32) ? { status: boundedExternalText(record.status, 32) } : {}), ...(boundedExternalText(record.updated, 64) ? { updated: boundedExternalText(record.updated, 64) } : {}) }),
+  });
+}
+
+export function createGoogleCalendarWriteOperations(options: GoogleWorkspaceExecutionOptions): readonly WorkerOperation[] {
   const execute = async (material: CredentialMaterial | undefined, command: "calendar.create" | "calendar.update" | "calendar.delete", argv: readonly string[]) => {
-    if (!options) throw new Error("GOG_RUNTIME_NOT_CONFIGURED");
-    return await runGogOAuthCommand(options, oauth(material), { command, mutating: true, argv });
+    if (options.backend !== "gog") throw new Error("GOOGLE_EXECUTION_BACKEND_MISMATCH");
+    return await runGogOAuthCommand(options.gog, oauth(material), { command, mutating: true, argv });
   };
   return Object.freeze([
-    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_CALENDAR_EVENT_CREATE_ACTION, mutating: true, async execute({ material }: { claims: CredentialGrantClaims; material?: CredentialMaterial }, raw: unknown) { const input = validateGoogleCalendarEventCreateInput(raw); return await execute(material, "calendar.create", ["calendar", "create", "primary", ...fieldArgs(input), "--send-updates", "all"]); } },
-    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_CALENDAR_EVENT_UPDATE_ACTION, mutating: true, async execute({ material }: { claims: CredentialGrantClaims; material?: CredentialMaterial }, raw: unknown) { const input = validateGoogleCalendarEventUpdateInput(raw); return await execute(material, "calendar.update", ["calendar", "update", "primary", input.eventId, ...fieldArgs(input), "--send-updates", "all"]); } },
-    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_CALENDAR_EVENT_DELETE_ACTION, mutating: true, async execute({ material }: { claims: CredentialGrantClaims; material?: CredentialMaterial }, raw: unknown) { const input = validateGoogleCalendarEventDeleteInput(raw); return await execute(material, "calendar.delete", ["calendar", "delete", "primary", input.eventId, "--send-updates", "all", "--force"]); } },
+    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_CALENDAR_EVENT_CREATE_ACTION, mutating: true, async execute({ material }: { claims: CredentialGrantClaims; material?: CredentialMaterial }, raw: unknown) { const input = validateGoogleCalendarEventCreateInput(raw); if (options.backend === "direct") return directResult(await googleApiRequest(options.direct ?? {}, material, { method: "POST", path: "/calendar/v3/calendars/primary/events", query: new URLSearchParams({ sendUpdates: "all" }), body: directBody(input) })); return await execute(material, "calendar.create", ["calendar", "create", "primary", ...fieldArgs(input), "--send-updates", "all"]); } },
+    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_CALENDAR_EVENT_UPDATE_ACTION, mutating: true, async execute({ material }: { claims: CredentialGrantClaims; material?: CredentialMaterial }, raw: unknown) { const input = validateGoogleCalendarEventUpdateInput(raw); if (options.backend === "direct") return directResult(await googleApiRequest(options.direct ?? {}, material, { method: "PATCH", path: `/calendar/v3/calendars/primary/events/${encodeURIComponent(input.eventId)}`, query: new URLSearchParams({ sendUpdates: "all" }), body: directBody(input) })); return await execute(material, "calendar.update", ["calendar", "update", "primary", input.eventId, ...fieldArgs(input), "--send-updates", "all"]); } },
+    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_CALENDAR_EVENT_DELETE_ACTION, mutating: true, async execute({ material }: { claims: CredentialGrantClaims; material?: CredentialMaterial }, raw: unknown) { const input = validateGoogleCalendarEventDeleteInput(raw); if (options.backend === "direct") { await googleApiRequest(options.direct ?? {}, material, { method: "DELETE", path: `/calendar/v3/calendars/primary/events/${encodeURIComponent(input.eventId)}`, query: new URLSearchParams({ sendUpdates: "all" }), allowEmpty: true }); return Object.freeze({ deleted: true }); } return await execute(material, "calendar.delete", ["calendar", "delete", "primary", input.eventId, "--send-updates", "all", "--force"]); } },
   ]);
 }
