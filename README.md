@@ -109,7 +109,7 @@ There is no automatic fallback and the backend is never model-visible.
 - `direct` uses fixed `https://www.googleapis.com` paths, header-only access tokens,
   redirects disabled, bounded JSON, and strict Calendar/Gmail projections. Gmail
   HTML, attachments, raw MIME, and arbitrary headers are never returned.
-- `gog` invokes an externally provisioned, owner/mode/SHA-256-verified binary with
+- `gog` (Linux only) invokes an externally provisioned, owner/mode/SHA-256-verified binary with
   a private state root, closed child environment, exact command allowlists,
   minimal projections, strict closed JSON schemas, and Gmail bodies over stdin.
 

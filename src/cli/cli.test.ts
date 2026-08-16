@@ -336,16 +336,16 @@ describe("actor CLI executor", () => {
   it.runIf(process.platform !== "win32")("terminates the full POSIX process group", async () => {
     const { binding, executionContext, root } = await bindingFixture();
     const marker = join(root, "descendant-survived");
-    const descendant = `setTimeout(()=>require('node:fs').writeFileSync(${JSON.stringify(marker)},'x'),150)`;
-    const parent = `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'});setTimeout(()=>{},10000)`;
+    const descendant = "setTimeout(()=>require('node:fs').writeFileSync(process.argv[1],'x'),150)";
+    const parent = "require('node:child_process').spawn(process.execPath,['-e',process.argv[1],process.argv[2]],{stdio:'ignore'});setTimeout(()=>{},10000)";
     const executor = new ActorCliExecutor({
-      policy: nodePolicy(parent),
+      policy: nodePolicy(parent, { allowPositionals: true }),
       timeoutMs: 25,
       redact: passThrough,
     });
 
     await expect(
-      executor.execute(binding, executionContext, { executable: "node", operation: "run" }),
+      executor.execute(binding, executionContext, { executable: "node", operation: "run", argv: [descendant, marker] }),
     ).rejects.toMatchObject({ code: "CLI_TIMEOUT" });
     await new Promise((resolve) => setTimeout(resolve, 225));
     await expect(access(marker)).rejects.toBeDefined();

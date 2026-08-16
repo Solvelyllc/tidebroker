@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,6 +25,17 @@ describe("release evidence collectors", () => {
     await expect(recordRealProviderEvidence(input, join(directory, "out.json"), sourceCommit)).rejects.toThrow("REAL_PROVIDER_EVIDENCE_FAILED");
     await writeFile(input, "{}\n"); await chmod(input, 0o644);
     await expect(recordRealProviderEvidence(input, join(directory, "out2.json"), sourceCommit)).rejects.toThrow("REAL_PROVIDER_EVIDENCE_FAILED");
+  });
+
+  it("rejects symlinked provider results without following them", async () => {
+    const directory = await root(); const target = join(directory, "target.json"); const input = join(directory, "results.json"); const outputTarget = join(directory, "output-target.json"); const outputLink = join(directory, "provider.json");
+    await writeFile(target, `${JSON.stringify({ version: 1, sourceCommit, verifiedAt: new Date().toISOString(), checks: providerChecks.map((id) => ({ id, status: "passed" })) })}\n`, { mode: 0o600 });
+    await symlink(target, input);
+    await expect(recordRealProviderEvidence(input, join(directory, "provider.json"), sourceCommit)).rejects.toThrow("REAL_PROVIDER_EVIDENCE_FAILED");
+    await rm(input); await writeFile(input, await readFile(target), { mode: 0o600 });
+    await writeFile(outputTarget, "unchanged\n", { mode: 0o600 }); await symlink(outputTarget, outputLink);
+    await expect(recordRealProviderEvidence(input, outputLink, sourceCommit)).rejects.toThrow("REAL_PROVIDER_EVIDENCE_FAILED");
+    await expect(readFile(outputTarget, "utf8")).resolves.toBe("unchanged\n");
   });
 
   it("builds a commit-bound summary from the three matching gate files", async () => {

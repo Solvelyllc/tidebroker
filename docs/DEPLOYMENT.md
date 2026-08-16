@@ -70,6 +70,9 @@ Authorization header, disables redirects, and strictly bounds/projects responses
 
 To use an externally installed `gog` instead, replace `googleExecution` with:
 
+External `gog` execution is Linux-only because Tidebroker executes the hash-verified
+open file descriptor rather than re-opening a mutable filesystem path.
+
 ```json
 {
   "googleExecution": {

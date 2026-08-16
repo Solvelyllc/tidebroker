@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { chmod, lstat, open, readFile, readdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { writeEvidenceFile } from "./write-evidence-file.mjs";
 
 function fail() { throw new Error("OS_ISOLATION_EVIDENCE_FAILED"); }
 function systemd(service, properties) {
@@ -10,17 +12,29 @@ function systemd(service, properties) {
 }
 async function privateTree(root, uid) {
   const visit = async (path) => {
-    const info = await lstat(path);
-    if (info.isSymbolicLink() || info.uid !== uid || (info.mode & 0o077) !== 0) fail();
-    if (info.isDirectory()) for (const entry of await readdir(path)) await visit(join(path, entry));
-    else if (!info.isFile()) fail();
+    let handle;
+    try {
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const info = await handle.stat();
+      if (info.uid !== uid || (info.mode & 0o077) !== 0) fail();
+      if (info.isDirectory()) {
+        const descriptorPath = `/proc/self/fd/${handle.fd}`;
+        for (const entry of await readdir(descriptorPath)) await visit(join(descriptorPath, entry));
+      } else if (!info.isFile()) fail();
+    } catch { fail(); }
+    finally { await handle?.close(); }
   };
   await visit(root);
 }
 async function privateFile(path, uid) {
   if (typeof path !== "string" || !isAbsolute(path)) fail();
-  const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink() || info.uid !== uid || (info.mode & 0o077) !== 0) fail();
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await handle.stat();
+    if (!info.isFile() || info.uid !== uid || (info.mode & 0o077) !== 0) fail();
+  } catch { fail(); }
+  finally { await handle?.close(); }
 }
 function exactConfig(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail();
@@ -34,9 +48,14 @@ export async function collectOsIsolationEvidence(options) {
   if (![outputPath, workerConfigPath].every((value) => typeof value === "string" && isAbsolute(value)) || typeof gatewayUser !== "string" || !gatewayUser || !/^[a-f0-9]{40,64}$/u.test(sourceCommit)) fail();
   const state = systemd(service, ["ActiveState", "SubState", "User", "NoNewPrivileges", "PrivateTmp", "ProtectSystem", "ProtectHome", "IPAddressDeny", "IPAddressAllow"]);
   if (state.ActiveState !== "active" || state.SubState !== "running" || !state.User || state.User === "root" || state.User === gatewayUser || state.NoNewPrivileges !== "yes" || state.PrivateTmp !== "yes" || state.ProtectSystem !== "strict" || state.ProtectHome !== "yes") fail();
-  const configInfo = await lstat(workerConfigPath);
-  if (!configInfo.isFile() || configInfo.isSymbolicLink() || configInfo.uid === 0 || (configInfo.mode & 0o077) !== 0) fail();
-  const config = exactConfig(JSON.parse(await readFile(workerConfigPath, "utf8")));
+  let configHandle; let configInfo; let config;
+  try {
+    configHandle = await open(workerConfigPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    configInfo = await configHandle.stat();
+    if (!configInfo.isFile() || configInfo.size > 64 * 1024 || configInfo.uid === 0 || (configInfo.mode & 0o077) !== 0) fail();
+    config = exactConfig(JSON.parse(await configHandle.readFile({ encoding: "utf8" })));
+  } catch { fail(); }
+  finally { await configHandle?.close(); }
   if (!isAbsolute(config.credentialRoot)) fail();
   await privateTree(config.credentialRoot, configInfo.uid);
   const secretPaths = [
@@ -59,11 +78,7 @@ export async function collectOsIsolationEvidence(options) {
     sourceCommit,
     checks: ["worker-user-separated", "credential-files-isolated", "provider-egress-restricted"].map((id) => ({ id, status: "passed" })),
   };
-  const handle = await open(outputPath, "wx", 0o600).catch(fail);
-  if (!handle) fail();
-  try { await handle.writeFile(`${JSON.stringify(evidence)}\n`, "utf8"); await handle.sync(); }
-  finally { await handle.close(); }
-  await chmod(outputPath, 0o600);
+  await writeEvidenceFile(outputPath, `${JSON.stringify(evidence)}\n`).catch(fail);
   return evidence;
 }
 

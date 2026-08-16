@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { CredentialMaterial } from "../credentials/store.js";
 import { googleAccessToken } from "./google-oauth.js";
@@ -62,12 +63,20 @@ export function validateGogExecutionOptions(options: GogExecutionOptions): Runti
   return Object.freeze({ ...options, timeoutMs, maxOutputBytes });
 }
 
-export async function verifyGogExecutable(runtime: Pick<Runtime, "executablePath" | "executableSha256">): Promise<string> {
-  const configured = await lstat(runtime.executablePath); const executable = await realpath(runtime.executablePath); const info = await stat(executable);
-  if (configured.isSymbolicLink() || !info.isFile() || (info.mode & 0o100) === 0 || (info.mode & 0o022) !== 0 || typeof process.getuid === "function" && info.uid !== process.getuid()) throw new Error("GOG_EXECUTABLE_INVALID");
-  const digest = createHash("sha256").update(await readFile(executable)).digest("hex");
-  if (digest !== runtime.executableSha256) throw new Error("GOG_EXECUTABLE_INVALID");
-  return executable;
+async function openVerifiedGogExecutable(runtime: Pick<Runtime, "executablePath" | "executableSha256">): Promise<FileHandle> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(runtime.executablePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await handle.stat();
+    if (!info.isFile() || (info.mode & 0o100) === 0 || (info.mode & 0o022) !== 0 ||
+      typeof process.getuid === "function" && info.uid !== process.getuid()) throw new Error("GOG_EXECUTABLE_INVALID");
+    const digest = createHash("sha256").update(await handle.readFile()).digest("hex");
+    if (digest !== runtime.executableSha256) throw new Error("GOG_EXECUTABLE_INVALID");
+    return handle;
+  } catch {
+    await handle?.close();
+    throw new Error("GOG_EXECUTABLE_INVALID");
+  }
 }
 
 /** Executes one baked/allowlisted gog command with a closed environment. */
@@ -77,20 +86,25 @@ export async function runGogOAuthCommand(options: GogExecutionOptions, material:
   const runtime = validateGogExecutionOptions(options);
   if (!GOG_COMMANDS.includes(input.command) || input.argv.some((part) => typeof part !== "string" || part.includes("\0"))) throw new Error("GOG_COMMAND_INVALID");
   if (input.command === "gmail.send" && input.allowGmailSend !== true || input.command !== "gmail.send" && input.allowGmailSend === true) throw new Error("GOG_COMMAND_INVALID");
-  const [home, executable] = await Promise.all([realpath(runtime.configRoot), verifyGogExecutable(runtime)]); const homeStat = await stat(home);
+  const home = await realpath(runtime.configRoot); const homeStat = await stat(home);
   if (!homeStat.isDirectory()) throw new Error("GOG_RUNTIME_INVALID");
-  const accessToken = await googleAccessToken(material, runtime.fetch ?? fetch);
-  await input.assertCredentialActive();
-  input.markProviderCallStarted();
-  const argv = ["--enable-commands-exact", input.command, ...(input.mutating ? [] : ["--readonly"]), ...(input.allowGmailSend === true ? [] : ["--gmail-no-send"]), "--no-input", "--wrap-untrusted", "--json", "--results-only", "--select", PROJECTIONS[input.command], ...input.argv];
-  return await new Promise((resolve, reject) => {
-    const child = spawn(executable, argv, { cwd: home, env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", GOG_HOME: home, GOG_ACCESS_TOKEN: accessToken }, shell: false, stdio: [input.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
-    const chunks: Buffer[] = []; let bytes = 0; let terminal = "GOG_EXECUTION_FAILED"; let settled = false;
-    const stop = (code: string) => { terminal = code; if (process.platform !== "win32" && child.pid !== undefined) { try { process.kill(-child.pid, "SIGKILL"); return; } catch {} } child.kill("SIGKILL"); };
-    const timer = setTimeout(() => stop("GOG_TIMEOUT"), runtime.timeoutMs); timer.unref();
-    const count = (chunk: Buffer, retain: boolean) => { bytes += chunk.length; if (bytes > runtime.maxOutputBytes) stop("GOG_OUTPUT_LIMIT"); else if (retain) chunks.push(chunk); };
-    child.stdout!.on("data", (chunk: Buffer) => count(chunk, true)); child.stderr!.on("data", (chunk: Buffer) => count(chunk, false)); child.on("error", () => stop("GOG_EXECUTION_FAILED"));
-    child.on("close", (exitCode) => { clearTimeout(timer); if (settled) return; settled = true; if (exitCode !== 0) { reject(new Error(terminal)); return; } try { resolve(parseGogOutput(input.command, JSON.parse(Buffer.concat(chunks).toString("utf8")), accessToken)); } catch { reject(new Error("GOG_OUTPUT_INVALID")); } });
-    if (input.stdin !== undefined && child.stdin) { child.stdin.on("error", () => stop("GOG_EXECUTION_FAILED")); child.stdin.end(input.stdin, "utf8"); }
-  });
+  if (process.platform !== "linux") throw new Error("GOG_RUNTIME_INVALID");
+  const executable = await openVerifiedGogExecutable(runtime);
+  try {
+    const accessToken = await googleAccessToken(material, runtime.fetch ?? fetch);
+    await input.assertCredentialActive();
+    input.markProviderCallStarted();
+    const argv = ["--enable-commands-exact", input.command, ...(input.mutating ? [] : ["--readonly"]), ...(input.allowGmailSend === true ? [] : ["--gmail-no-send"]), "--no-input", "--wrap-untrusted", "--json", "--results-only", "--select", PROJECTIONS[input.command], ...input.argv];
+    const executableFdPath = "/proc/self/fd/3";
+    return await new Promise((resolve, reject) => {
+      const child = spawn(executableFdPath, argv, { cwd: home, env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", GOG_HOME: home, GOG_ACCESS_TOKEN: accessToken }, shell: false, stdio: [input.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe", executable.fd], windowsHide: true, detached: true });
+      const chunks: Buffer[] = []; let bytes = 0; let terminal = "GOG_EXECUTION_FAILED"; let settled = false;
+      const stop = (code: string) => { terminal = code; if (child.pid !== undefined) { try { process.kill(-child.pid, "SIGKILL"); return; } catch {} } child.kill("SIGKILL"); };
+      const timer = setTimeout(() => stop("GOG_TIMEOUT"), runtime.timeoutMs); timer.unref();
+      const count = (chunk: Buffer, retain: boolean) => { bytes += chunk.length; if (bytes > runtime.maxOutputBytes) stop("GOG_OUTPUT_LIMIT"); else if (retain) chunks.push(chunk); };
+      child.stdout!.on("data", (chunk: Buffer) => count(chunk, true)); child.stderr!.on("data", (chunk: Buffer) => count(chunk, false)); child.on("error", () => stop("GOG_EXECUTION_FAILED"));
+      child.on("close", (exitCode) => { clearTimeout(timer); if (settled) return; settled = true; if (exitCode !== 0) { reject(new Error(terminal)); return; } try { resolve(parseGogOutput(input.command, JSON.parse(Buffer.concat(chunks).toString("utf8")), accessToken)); } catch { reject(new Error("GOG_OUTPUT_INVALID")); } });
+      if (input.stdin !== undefined && child.stdin) { child.stdin.on("error", () => stop("GOG_EXECUTION_FAILED")); child.stdin.end(input.stdin, "utf8"); }
+    });
+  } finally { await executable.close(); }
 }
