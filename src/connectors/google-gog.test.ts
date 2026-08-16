@@ -1,18 +1,18 @@
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createGoogleGogCalendarListOperation } from "./google-gog.js";
+
+const fakeGogPath = fileURLToPath(new URL("../../test-fixtures/fake-gog.mjs", import.meta.url));
 
 describe("Google gog connector", () => {
   it("uses a fixed safe command surface and strips credential-shaped output", async () => {
     const root = await mkdtemp(join(tmpdir(), "gog-worker-"));
     const profile = join(root, "profile");
     await mkdir(profile);
-    const executable = join(root, "fake-gog");
-    await writeFile(executable, "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({argv:process.argv.slice(2),token:'must-not-return',items:[{id:'event-1'}]}))\n", { mode: 0o700 });
-    await chmod(executable, 0o700);
-    const operation = createGoogleGogCalendarListOperation({ executablePath: executable, configRoot: root });
+    const operation = createGoogleGogCalendarListOperation({ executablePath: fakeGogPath, configRoot: root });
     const output = await operation.execute({ claims: {} as never, material: { kind: "gog-profile", configDirectory: profile, accountAlias: "acct_opaque123" } }, { today: true, maxResults: 5 }) as { argv: string[]; token?: string; items: unknown[] };
     expect(output.token).toBeUndefined();
     expect(output.argv).toEqual(["--account", "acct_opaque123", "--enable-commands-exact", "calendar.events", "--gmail-no-send", "--readonly", "--no-input", "--wrap-untrusted", "--json", "calendar", "events", "--today", "--max", "5"]);
@@ -26,14 +26,12 @@ describe("Google gog connector", () => {
 
   it("uses worker-custodied OAuth without putting credentials in URLs or output", async () => {
     const root = await mkdtemp(join(tmpdir(), "gog-oauth-worker-"));
-    const executable = join(root, "fake-gog");
-    await writeFile(executable, "#!/usr/bin/node\nprocess.stdout.write(JSON.stringify({argv:process.argv.slice(2),hasAccessToken:Boolean(process.env.GOG_ACCESS_TOKEN),access_token:'must-not-return'}))\n", { mode: 0o700 });
     const requests: { url: string; init?: RequestInit }[] = [];
     const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(input), init });
       return new Response(JSON.stringify({ access_token: "synthetic-access-token", token_type: "Bearer" }), { status: 200, headers: { "content-type": "application/json" } });
     };
-    const operation = createGoogleGogCalendarListOperation({ executablePath: executable, configRoot: root, fetch: fetcher as typeof fetch });
+    const operation = createGoogleGogCalendarListOperation({ executablePath: fakeGogPath, configRoot: root, fetch: fetcher as typeof fetch });
     const result = await operation.execute({ claims: {} as never, material: { kind: "oauth2", refreshToken: "synthetic-refresh-token", clientId: "client-public" } }, { maxResults: 3 }) as { argv: string[]; hasAccessToken: boolean; access_token?: string };
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).not.toContain("synthetic-refresh-token");

@@ -1,20 +1,19 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { createGoogleGmailOperations, GOOGLE_GMAIL_MESSAGE_GET_ACTION, GOOGLE_GMAIL_MESSAGE_SEND_ACTION, GOOGLE_GMAIL_MESSAGES_SEARCH_ACTION, validateGoogleGmailMessageSendInput } from "./google-gmail.js";
 
 const material = { kind: "oauth2" as const, refreshToken: "refresh-canary", clientId: "client-id" };
 const token = () => new Response(JSON.stringify({ access_token: "access-token-canary-value", token_type: "Bearer" }), { status: 200 });
+const fakeGogPath = fileURLToPath(new URL("../../test-fixtures/fake-gog.mjs", import.meta.url));
 
 async function fakeGog() {
-  const root = await mkdtemp(join(tmpdir(), "gmail-gog-")); const executablePath = join(root, "gog-safe");
-  await writeFile(executablePath, `#!/usr/bin/node
-const crypto=require('node:crypto');let body='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>body+=c);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({argv:process.argv.slice(2),bodyLength:body.length,bodyDigest:crypto.createHash('sha256').update(body).digest('hex'),hasAccessToken:Boolean(process.env.GOG_ACCESS_TOKEN),refresh_token:'strip-me'})));
-`, { mode: 0o700 });
+  const root = await mkdtemp(join(tmpdir(), "gmail-gog-"));
   const fetcher = vi.fn(async () => token());
-  return { options: { executablePath, configRoot: root, fetch: fetcher as typeof fetch }, fetcher };
+  return { options: { executablePath: fakeGogPath, configRoot: root, fetch: fetcher as typeof fetch }, fetcher };
 }
 
 describe("Google Gmail gog connector", () => {
