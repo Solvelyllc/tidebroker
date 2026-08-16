@@ -1,3 +1,9 @@
+import {
+  trustedActorFromHostContext,
+  type TrustedActorId,
+} from "../core/identity.js";
+import type { McpToolContract, McpToolQuarantine } from "./tool-quarantine.js";
+
 export type RequesterScopedMcpContext = {
   requesterSenderId: string;
   agentAccountId?: string;
@@ -28,6 +34,10 @@ export type RequesterScopedMcpResolver = {
     context: RequesterScopedMcpContext,
   ): Promise<RequesterScopedMcpConnection | null>;
 };
+
+export type RequesterScopedMcpToolProbe = (
+  connection: Readonly<RequesterScopedMcpConnection>,
+) => Promise<readonly McpToolContract[]>;
 
 const FORBIDDEN_HEADERS = new Set([
   "connection",
@@ -111,7 +121,30 @@ export function createRequesterScopedMcpResolver(params: {
     },
   };
 }
-import {
-  trustedActorFromHostContext,
-  type TrustedActorId,
-} from "../core/identity.js";
+
+/**
+ * Resolves a requester-bound transport, probes its live tool surface, and
+ * returns the connection only when every reported tool exactly matches the
+ * deployment-owned policy. Unknown or drifted tools quarantine the server for
+ * the current resolution instead of leaking a partial unsafe surface.
+ */
+export function createQuarantinedRequesterScopedMcpResolver(params: {
+  serverName: string;
+  bindings: RequesterScopedMcpBindingProvider;
+  quarantine: McpToolQuarantine;
+  probe: RequesterScopedMcpToolProbe;
+}): RequesterScopedMcpResolver {
+  const resolver = createRequesterScopedMcpResolver(params);
+  return {
+    serverName: resolver.serverName,
+    async resolve(context) {
+      const connection = await resolver.resolve(context);
+      if (!connection) return null;
+      const reported = await params.probe(connection);
+      const decisions = params.quarantine.inspect(reported);
+      return decisions.length > 0 && decisions.every((decision) => decision.status === "allowed")
+        ? connection
+        : null;
+    },
+  };
+}

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 const root = resolve(import.meta.dirname, "..");
 const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 const manifest = JSON.parse(await readFile(resolve(root, "openclaw.plugin.json"), "utf8"));
+const workflowPaths = [".github/workflows/ci.yml", ".github/workflows/codeql.yml", ".github/workflows/release-artifacts.yml"];
 
 if (packageJson.scripts?.prepublishOnly !== "npm run release:check") {
   throw new Error("public publish must enforce release evidence");
@@ -47,6 +48,16 @@ if (((await stat(resolve(root, "dist/worker/entry.js"))).mode & 0o111) === 0) {
 
 for (const relativePath of ["dist/index.js", "dist/public.js", "dist/worker/entry.js"]) {
   await access(resolve(root, relativePath));
+}
+for (const relativePath of workflowPaths) {
+  const workflow = await readFile(resolve(root, relativePath), "utf8");
+  for (const match of workflow.matchAll(/uses:\s*([^\s#]+)/gu)) {
+    if (!/@[a-f0-9]{40}$/u.test(match[1])) throw new Error(`workflow action must use an immutable commit SHA: ${relativePath}`);
+  }
+}
+const releaseWorkflow = await readFile(resolve(root, ".github/workflows/release-artifacts.yml"), "utf8");
+for (const required of ["git verify-tag", "git verify-commit", "npm run release:check", "build-release-artifacts.mjs", "attest-build-provenance"]) {
+  if (!releaseWorkflow.includes(required)) throw new Error(`release workflow must enforce ${required}`);
 }
 const entry = await import(pathToFileURL(resolve(root, "dist/index.js")).href);
 if (entry.default?.id !== manifest.id || typeof entry.default?.register !== "function") {

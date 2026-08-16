@@ -204,6 +204,12 @@ principal, workspace, connector configuration version, credential generation,
 and schema fingerprint so one user's authenticated connection is never reused for
 another.
 
+Requester-scoped MCP integrations use
+`createQuarantinedRequesterScopedMcpResolver`: after actor-bound transport
+resolution, a deployment-owned probe reports the live tool schemas and
+classifications. The resolver returns no connection when any tool is unknown or
+drifted, so OpenClaw cannot discover an unsafe partial surface.
+
 ## Redaction and data minimization
 
 Secrets are prevented from reaching logs, not merely masked after logging. Code

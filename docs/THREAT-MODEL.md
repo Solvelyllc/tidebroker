@@ -1,11 +1,16 @@
 # Threat model
 
 > **Status:** This is the release-gating threat model for the target production
-> broker. Version `1.1.2` implements the operational controls described in
+> broker. Version `1.1.3` implements the operational controls described in
 > `SECURITY-ARCHITECTURE.md`, including trusted workspace binding, authenticated
 > credential-worker grants, OAuth custody, audit delivery contracts, and
 > revocation, protected local transport, and durable file adapters. OS/container
 > deployment, a real-provider smoke test, and MCP schema quarantine remain gates.
+
+The MCP quarantine implementation enforces deployment-approved schema fingerprints
+and read/write approval classifications. Its collector proves exact-schema
+acceptance, schema-drift quarantine, and unknown-tool denial against the built
+artifact. Production release still requires fresh commit-bound evidence.
 
 `npm publish` enforces these three gates through `npm run release:check`. The
 check requires owner-only evidence files bound to the exact source commit and

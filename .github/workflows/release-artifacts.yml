@@ -1,0 +1,60 @@
+name: Release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing signed vX.Y.Z tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  package:
+    if: ${{ vars.TIDEBROKER_RELEASE_AUTOMATION_ENABLED == 'true' }}
+    runs-on: [self-hosted, tidebroker-release]
+    environment: production-release
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify signed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/release-allowed-signers
+          git config gpg.format ssh
+          git config gpg.ssh.allowedSignersFile "$PWD/.github/release-allowed-signers"
+          git verify-tag "${{ inputs.release_tag }}"
+          git verify-commit HEAD
+          test "$(git rev-list -n 1 "${{ inputs.release_tag }}")" = "$(git rev-parse HEAD)"
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --audit-level=low
+      - name: Verify deployment evidence
+        run: npm run release:check
+        env:
+          TIDEBROKER_RELEASE_EVIDENCE_PATH: ${{ vars.TIDEBROKER_RELEASE_EVIDENCE_PATH }}
+      - name: Build distributable, SBOM, and checksums
+        run: node ./scripts/build-release-artifacts.mjs "$RUNNER_TEMP/tidebroker-release"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ runner.temp }}/tidebroker-release/*
+      - name: Upload release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tidebroker-${{ inputs.release_tag }}
+          path: ${{ runner.temp }}/tidebroker-release/*
+          if-no-files-found: error
+          retention-days: 30

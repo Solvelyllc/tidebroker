@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "sourceCommit": "replace-with-full-release-commit-sha",
+  "verifiedAt": "replace-with-current-UTC-ISO-8601-timestamp",
+  "checks": [
+    { "id": "calendar-read", "status": "passed" },
+    { "id": "gmail-read", "status": "passed" },
+    { "id": "approved-write", "status": "passed" },
+    { "id": "unmapped-requester-denied", "status": "passed" }
+  ]
+}

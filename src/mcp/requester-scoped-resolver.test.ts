@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRequesterScopedMcpResolver } from "./requester-scoped-resolver.js";
+import { createQuarantinedRequesterScopedMcpResolver, createRequesterScopedMcpResolver } from "./requester-scoped-resolver.js";
+import { McpToolQuarantine, mcpSchemaFingerprint } from "./tool-quarantine.js";
 
 describe("createRequesterScopedMcpResolver", () => {
   it("derives the actor only from trusted runtime context", async () => {
@@ -77,5 +78,28 @@ describe("createRequesterScopedMcpResolver", () => {
     await expect(resolver.resolve({ requesterSenderId: "actor-1" })).rejects.toThrow(
       "header is not allowed",
     );
+  });
+
+  it("omits a requester-scoped MCP server when its live schema drifts", async () => {
+    const approvedSchema = { type: "object", additionalProperties: false, properties: { query: { type: "string", maxLength: 100 } } };
+    const resolver = createQuarantinedRequesterScopedMcpResolver({
+      serverName: "solvely-google",
+      bindings: { resolve: () => ({ url: "https://broker.example.test/mcp", headers: { authorization: "Bearer hidden" } }) },
+      quarantine: new McpToolQuarantine([{ name: "search", schemaSha256: mcpSchemaFingerprint(approvedSchema), privilege: "read", approval: "none" }]),
+      probe: async () => [{ name: "search", inputSchema: { ...approvedSchema, properties: { query: { type: "string", maxLength: 10_000 } } }, privilege: "read", approval: "none" }],
+    });
+    await expect(resolver.resolve({ requesterSenderId: "actor-1" })).resolves.toBeNull();
+  });
+
+  it("returns a requester-scoped MCP server only for an exact live tool surface", async () => {
+    const approvedSchema = { type: "object", additionalProperties: false, properties: { query: { type: "string" } } };
+    const connection = { url: "https://broker.example.test/mcp" };
+    const resolver = createQuarantinedRequesterScopedMcpResolver({
+      serverName: "solvely-google",
+      bindings: { resolve: () => connection },
+      quarantine: new McpToolQuarantine([{ name: "search", schemaSha256: mcpSchemaFingerprint(approvedSchema), privilege: "read", approval: "none" }]),
+      probe: async () => [{ name: "search", inputSchema: approvedSchema, privilege: "read", approval: "none" }],
+    });
+    await expect(resolver.resolve({ requesterSenderId: "actor-1" })).resolves.toEqual(connection);
   });
 });
