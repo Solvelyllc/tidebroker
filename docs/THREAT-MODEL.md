@@ -1,7 +1,7 @@
 # Threat model
 
 > **Status:** This is the release-gating threat model for the target production
-> broker. Version `1.1.0` implements the operational controls described in
+> broker. Version `1.1.1` implements the operational controls described in
 > `SECURITY-ARCHITECTURE.md`, including trusted workspace binding, authenticated
 > credential-worker grants, OAuth custody, audit delivery contracts, and
 > revocation, protected local transport, and durable file adapters. OS/container
