@@ -1,0 +1,76 @@
+{
+  "name": "@solvely/tidebroker",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Solvelyllc/tidebroker.git"
+  },
+  "homepage": "https://github.com/Solvelyllc/tidebroker#readme",
+  "bugs": {
+    "url": "https://github.com/Solvelyllc/tidebroker/issues"
+  },
+  "type": "module",
+  "private": false,
+  "description": "Approval-gated credential brokerage and actor-scoped connectors for OpenClaw.",
+  "keywords": [
+    "openclaw",
+    "clawhub",
+    "credential-broker",
+    "tidebroker",
+    "google-calendar",
+    "gmail",
+    "oauth",
+    "security"
+  ],
+  "scripts": {
+    "build": "node ./scripts/clean-dist.mjs && tsc -p tsconfig.json && node ./scripts/finalize-dist.mjs",
+    "prepack": "npm run plugin:validate",
+    "plugin:build": "npm run build",
+    "plugin:validate": "npm run build && node ./scripts/validate-package.mjs && npm test",
+    "check": "npm run plugin:validate",
+    "test": "vitest run --config ./vitest.config.ts"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "openclaw.plugin.json",
+    "scripts/gog-safety-profile.yaml",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./sdk": "./dist/public.js"
+  },
+  "bin": {
+    "tidebroker-worker": "./dist/worker/entry.js"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.8.1"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.8.1",
+      "minGatewayVersion": "2026.8.1"
+    },
+    "build": {
+      "openclawVersion": "2026.8.1",
+      "pluginSdkVersion": "2026.8.1"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+dist/
+node_modules/
+*.tgz
+coverage/
+reports/
+.DS_Store
+
+# Local OpenClaw agent workspace continuity. These files are not plugin source
+# and may contain operator-specific context.
+AGENTS.md
+SOUL.md
+IDENTITY.md
+USER.md
+MEMORY.md
+DREAMS.md
+memory/
+
+# Deployment/runtime state and credential material must never enter source or
+# release artifacts.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*oauth-client*.json
+*client-secret*.json
+credential-inbox/
+runtime/
+state/

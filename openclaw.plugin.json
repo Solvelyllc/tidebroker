@@ -1,0 +1,102 @@
+{
+  "id": "tidebroker",
+  "name": "Tidebroker",
+  "description": "Binds connector execution to OpenClaw's trusted requester identity without exposing credentials to the model.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "workerSocketPath": { "type": "string", "minLength": 1 },
+      "workerSocketAccess": { "type": "string", "enum": ["owner", "group"] },
+      "workerSocketGroupId": { "type": "integer", "minimum": 0 },
+      "subjectMappingsPath": { "type": "string", "minLength": 1 },
+      "workspaceMembershipsPath": { "type": "string", "minLength": 1 },
+      "gatewayAuditRoot": { "type": "string", "minLength": 1 },
+      "workerAccountDiscovery": { "type": "boolean" },
+      "grant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issuer", "audience", "keyFile"],
+        "properties": {
+          "issuer": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+          "audience": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+          "keyFile": { "type": "string", "minLength": 1 }
+        }
+      },
+      "agentWorkspaces": {
+        "type": "array", "minItems": 1,
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["agentId", "workspaceId"],
+          "properties": {
+            "agentId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+            "workspaceId": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]{6,96}$" }
+          }
+        }
+      },
+      "accounts": {
+        "type": "array", "minItems": 1,
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["subjectId", "workspaceId", "accountId", "credentialHandle", "credentialGeneration", "allowedActions", "enabled"],
+          "properties": {
+            "subjectId": { "type": "string", "pattern": "^usr_[A-Za-z0-9_-]{16,96}$" },
+            "workspaceId": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]{6,96}$" },
+            "accountId": { "type": "string", "minLength": 1 },
+            "credentialHandle": { "type": "string", "minLength": 1 },
+            "credentialGeneration": { "type": "integer", "minimum": 1 },
+            "allowedActions": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "enum": ["calendar.events.list", "calendar.events.create", "calendar.events.update", "calendar.events.delete", "project.services.enable", "gmail.messages.search", "gmail.messages.get", "gmail.messages.send"] } },
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "tidebroker_status",
+      "google_calendar_events_list",
+      "google_calendar_event_create",
+      "google_calendar_event_update",
+      "google_calendar_event_delete",
+      "google_project_services_enable",
+      "google_gmail_messages_search",
+      "google_gmail_message_get",
+      "google_gmail_message_send"
+    ]
+  },
+  "toolMetadata": {
+    "tidebroker_status": {
+      "optional": true
+    },
+    "google_calendar_events_list": {
+      "optional": true
+    },
+    "google_calendar_event_create": {
+      "optional": true
+    },
+    "google_calendar_event_update": {
+      "optional": true
+    },
+    "google_calendar_event_delete": {
+      "optional": true
+    },
+    "google_project_services_enable": {
+      "optional": true
+    },
+    "google_gmail_messages_search": {
+      "optional": true
+    },
+    "google_gmail_message_get": {
+      "optional": true
+    },
+    "google_gmail_message_send": {
+      "optional": true
+    }
+  }
+}

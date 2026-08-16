@@ -1,0 +1,23 @@
+name: tidebroker
+description: Fixed Google command surface for the isolated Tidebroker credential worker.
+
+version: true
+schema: true
+
+gmail:
+  search: true
+  get: true
+  messages:
+    search: true
+  send: true
+
+calendar:
+  events: true
+  create: true
+  update: true
+  delete: true
+
+locked-flags:
+  no-input: true
+  wrap-untrusted: true
+  json: true
