@@ -18,7 +18,7 @@ HTTP connectors.
 
 ## Implementation status
 
-Version `1.0.0` implements exact deployment-local opaque subject mapping; a
+Version `1.1.0` implements exact deployment-local opaque subject mapping; a
 branded host-trusted selected-workspace binding with repeated membership checks;
 authenticated short-lived, action- and generation-bound worker grants with replay
 protection; encrypted credential and OAuth custody; audit sink integration;
