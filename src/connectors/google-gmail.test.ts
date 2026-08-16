@@ -2,18 +2,18 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { createFakeGog } from "../../test-fixtures/fake-gog-helper.js";
 import { createGoogleGmailOperations, GOOGLE_GMAIL_MESSAGE_GET_ACTION, GOOGLE_GMAIL_MESSAGE_SEND_ACTION, GOOGLE_GMAIL_MESSAGES_SEARCH_ACTION, validateGoogleGmailMessageSendInput } from "./google-gmail.js";
 
 const material = { kind: "oauth2" as const, refreshToken: "refresh-canary", clientId: "client-id" };
 const token = () => new Response(JSON.stringify({ access_token: "access-token-canary-value", token_type: "Bearer" }), { status: 200 });
-const fakeGogPath = fileURLToPath(new URL("../../test-fixtures/fake-gog.mjs", import.meta.url));
 
 async function fakeGog() {
   const root = await mkdtemp(join(tmpdir(), "gmail-gog-"));
+  const executablePath = await createFakeGog(root);
   const fetcher = vi.fn(async () => token());
-  return { options: { executablePath: fakeGogPath, configRoot: root, fetch: fetcher as typeof fetch }, fetcher };
+  return { options: { executablePath, configRoot: root, fetch: fetcher as typeof fetch }, fetcher };
 }
 
 describe("Google Gmail gog connector", () => {

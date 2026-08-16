@@ -1,17 +1,16 @@
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createFakeGog } from "../../test-fixtures/fake-gog-helper.js";
 import { createGoogleGogCalendarListOperation } from "./google-gog.js";
-
-const fakeGogPath = fileURLToPath(new URL("../../test-fixtures/fake-gog.mjs", import.meta.url));
 
 describe("Google gog connector", () => {
   it("uses a fixed safe command surface and strips credential-shaped output", async () => {
     const root = await mkdtemp(join(tmpdir(), "gog-worker-"));
     const profile = join(root, "profile");
     await mkdir(profile);
+    const fakeGogPath = await createFakeGog(root);
     const operation = createGoogleGogCalendarListOperation({ executablePath: fakeGogPath, configRoot: root });
     const output = await operation.execute({ claims: {} as never, material: { kind: "gog-profile", configDirectory: profile, accountAlias: "acct_opaque123" } }, { today: true, maxResults: 5 }) as { argv: string[]; token?: string; items: unknown[] };
     expect(output.token).toBeUndefined();
@@ -26,6 +25,7 @@ describe("Google gog connector", () => {
 
   it("uses worker-custodied OAuth without putting credentials in URLs or output", async () => {
     const root = await mkdtemp(join(tmpdir(), "gog-oauth-worker-"));
+    const fakeGogPath = await createFakeGog(root);
     const requests: { url: string; init?: RequestInit }[] = [];
     const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(input), init });
