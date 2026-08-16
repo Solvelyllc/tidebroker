@@ -1,0 +1,12 @@
+{
+  "name": "openclaw",
+  "version": "2026.8.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./plugin-sdk/plugin-entry": {
+      "types": "./plugin-entry.d.ts",
+      "default": "./plugin-entry.js"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { createPublicKey, verify as verifySignature } from "node:crypto";
+import type { JsonWebKey as NodeJsonWebKey } from "node:crypto";
 import type { OAuthTokenExchanger, OAuthTokenExchangeResult } from "../credentials/oauth.js";
 import type { CredentialMaterial } from "../credentials/store.js";
 
@@ -46,7 +47,7 @@ async function validateGoogleIdToken(idToken: string, audience: string, fetcher:
   const jwk = jwks.keys.find((candidate) => typeof candidate === "object" && candidate !== null && (candidate as Record<string, unknown>).kid === header.kid);
   if (!jwk) throw new Error("GOOGLE_OAUTH_RESPONSE_INVALID");
   let valid = false;
-  try { valid = verifySignature("RSA-SHA256", Buffer.from(`${parts[0]}.${parts[1]}`, "ascii"), createPublicKey({ key: jwk as JsonWebKey, format: "jwk" }), Buffer.from(parts[2]!, "base64url")); } catch {}
+  try { valid = verifySignature("RSA-SHA256", Buffer.from(`${parts[0]}.${parts[1]}`, "ascii"), createPublicKey({ key: jwk as NodeJsonWebKey, format: "jwk" }), Buffer.from(parts[2]!, "base64url")); } catch {}
   const now = Math.floor(Date.now() / 1000);
   const tokenAudience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!valid || claims.iss !== "https://accounts.google.com" && claims.iss !== "accounts.google.com" || !tokenAudience.includes(audience) ||

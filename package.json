@@ -57,6 +57,8 @@
     "typebox": "^1.1.38"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
+    "openclaw": "file:test-fixtures/openclaw",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },
