@@ -63,10 +63,15 @@ export async function googleApiRequest(options: GoogleDirectExecutionOptions, ma
   readonly query?: URLSearchParams;
   readonly body?: unknown;
   readonly allowEmpty?: boolean;
+  /** Re-check revocation after token refresh and immediately before network I/O. */
+  readonly assertCredentialActive: () => Promise<void>;
+  readonly markProviderCallStarted: () => void;
 }): Promise<unknown> {
   const runtime = limits(options);
   const fetcher = options.fetch ?? fetch;
   const accessToken = await googleAccessToken(oauth(material), fetcher);
+  await input.assertCredentialActive();
+  input.markProviderCallStarted();
   const response = await fetcher(fixedGoogleUrl(input.path, input.query), {
     method: input.method,
     headers: {

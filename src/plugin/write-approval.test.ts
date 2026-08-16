@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { consumeGoogleWriteApproval, requireGoogleWriteApproval } from "./write-approval.js";
+import { nonRetriableOutcomeUnknown } from "./google-write-tools.js";
 
 const context = { requester: { channel: "webchat", accountId: "default", senderId: "sender-1" } };
 const host = { messageChannel: "webchat", agentAccountId: "default", requesterSenderId: "sender-1" };
@@ -21,18 +22,14 @@ describe("Google write approvals", () => {
     expect(requireGoogleWriteApproval({ toolName: "google_calendar_event_delete", toolCallId: "call-2", params: { eventId: "event_12345" } }, {})).toMatchObject({ block: true });
   });
 
-  it("requires critical exact approval for project API changes", () => {
-    const params = { services: ["drive.googleapis.com"] };
-    const result = requireGoogleWriteApproval({ toolName: "google_project_services_enable", toolCallId: "call-admin", params }, context) as { requireApproval: { severity: string; allowedDecisions: string[]; onResolution(decision: string): void } };
-    expect(result.requireApproval.severity).toBe("critical"); expect(result.requireApproval.allowedDecisions).toEqual(["allow-once", "deny"]);
-    result.requireApproval.onResolution("allow-once");
-    expect(() => consumeGoogleWriteApproval("google_project_services_enable", "call-admin", { services: ["gmail.googleapis.com"] }, host)).toThrow("GOOGLE_WRITE_APPROVAL_REQUIRED");
-  });
-
   it("binds email-send approval to the exact recipients, subject, and body", () => {
     const params = { to: ["recipient@example.com"], subject: "Approved", textBody: "Exact body" };
-    const result = requireGoogleWriteApproval({ toolName: "google_gmail_message_send", toolCallId: "call-email", params }, context) as { requireApproval: { severity: string; onResolution(decision: string): void } };
-    expect(result.requireApproval.severity).toBe("critical"); result.requireApproval.onResolution("allow-once");
+    const result = requireGoogleWriteApproval({ toolName: "google_gmail_message_send", toolCallId: "call-email", params }, context) as { requireApproval: { severity: string; description: string; onResolution(decision: string): void } };
+    expect(result.requireApproval.severity).toBe("critical"); expect(result.requireApproval.description).toContain("Exact body"); result.requireApproval.onResolution("allow-once");
     expect(() => consumeGoogleWriteApproval("google_gmail_message_send", "call-email", { ...params, textBody: "Changed body" }, host)).toThrow("GOOGLE_WRITE_APPROVAL_REQUIRED");
+  });
+
+  it("represents an outcome-unknown write as an explicit non-retriable result", () => {
+    expect(nonRetriableOutcomeUnknown({ code: "WORKER_OUTCOME_UNKNOWN", retryable: false })).toMatchObject({ details: { outcome: "unknown", retryable: false, code: "WORKER_OUTCOME_UNKNOWN" } });
   });
 });

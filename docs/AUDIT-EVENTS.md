@@ -60,6 +60,9 @@ sensitive. If audit delivery fails, mutating connector policy should define
 whether execution is denied or a local durable queue is required; it must never
 fall back to an unstructured debug log.
 
-`AuditSink.ready()` is checked before mutating worker operations. Revocation is
+`AuditSink.ready()` is checked before mutating worker operations. Mutating
+operations additionally journal intent and outcome durably; a possible write
+without confirmed outcome and success-audit delivery is reported as non-retriable
+`WORKER_OUTCOME_UNKNOWN`, never as an ordinary retryable failure. Revocation is
 not rolled back if an invalidation target or audit sink fails; the credential
 remains disabled and the caller receives a stable failure.

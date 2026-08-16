@@ -14,9 +14,10 @@ the process/container transport. Never expose the worker directly to clients.
    request body. Never use raw identity headers, query strings, argv, or ambient
    environment state as the authorization protocol.
 6. The worker authenticates the grant, atomically claims the nonce, redeems the
-   exact encrypted record, rechecks generation immediately before the provider
-   call, executes one registered operation, sanitizes output, and appends a
-   closed-schema audit event.
+   exact encrypted record, durably records mutating intent, rechecks generation
+   after access-token refresh and immediately before the provider call, executes
+   one registered operation, durably records its outcome, validates a strict
+   backend/command-specific output schema, and appends a closed-schema audit event.
 
 `UnixCredentialWorkerServer` uses a mode-`0600` socket inside an owner-only
 directory, length-prefixed bounded JSON frames, stable closed errors, request
@@ -26,9 +27,8 @@ automation must prove the old process is gone before removing that exact socket.
 
 Run the worker with a different OS identity or container, a private state root,
 no inherited cloud/CLI environment, fixed executable paths, bounded resources,
-and only active/rotation encryption keys. Use a durable atomic replay store and
-append-only audit sink in multi-process deployments; in-memory adapters are for
-tests and single-process development only.
+and only active/rotation encryption keys. Use durable atomic replay and mutation-
+outcome stores plus an append-only audit sink; in-memory adapters are for tests only.
 
 The worker also exposes one non-credential operation, `account.binding.resolve`.
 It requires a normal authenticated, replay-protected, short-lived grant bound to
@@ -39,8 +39,9 @@ cannot list all bindings and cannot read the worker-private binding file.
 Google Workspace operations use exactly one worker-owned backend. Direct mode calls
 only fixed Google HTTPS origins and baked paths, places the short-lived access token
 only in the Authorization header, disables redirects, and bounds and projects every
-response. External-gog mode invokes a fixed absolute executable with a private root,
-closed environment, exact-command flags, bounded output, and message bodies over
+response. External-gog mode invokes an owner-controlled, mode-checked, SHA-256-
+pinned absolute executable with a private root, closed environment, exact-command
+flags, minimal result projection, closed output schemas, and message bodies over
 stdin. Tidebroker bundles no gog executable or source. Invalid configuration fails
 startup and there is no cross-backend fallback. Credential redemption, grants,
 replay prevention, approvals, audit, and revocation remain outside both adapters.

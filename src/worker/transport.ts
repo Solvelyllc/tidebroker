@@ -18,10 +18,10 @@ export interface WorkerTransportExecuteRequest {
 
 type WorkerTransportResponse =
   | { readonly version: 1; readonly id: string; readonly ok: true; readonly result: unknown }
-  | { readonly version: 1; readonly id: string; readonly ok: false; readonly code: string };
+  | { readonly version: 1; readonly id: string; readonly ok: false; readonly code: string; readonly retryable: boolean };
 
 const REQUEST_KEYS = new Set(["version", "type", "id", "connectorId", "action", "grant", "input"]);
-const RESPONSE_KEYS = new Set(["version", "id", "ok", "result", "code"]);
+const RESPONSE_KEYS = new Set(["version", "id", "ok", "result", "code", "retryable"]);
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_ACTION = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+){0,15}$/;
 
@@ -52,7 +52,7 @@ function decodeResponse(value: unknown, expectedId: string): WorkerTransportResp
   const record = value as Record<string, unknown>;
   if (Object.keys(record).some((key) => !RESPONSE_KEYS.has(key)) || record.version !== 1 || record.id !== expectedId || typeof record.ok !== "boolean") throw new Error("WORKER_PROTOCOL_INVALID");
   if (record.ok === true && !Object.hasOwn(record, "result")) throw new Error("WORKER_PROTOCOL_INVALID");
-  if (record.ok === false && (typeof record.code !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(record.code))) throw new Error("WORKER_PROTOCOL_INVALID");
+  if (record.ok === false && (typeof record.code !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(record.code) || typeof record.retryable !== "boolean")) throw new Error("WORKER_PROTOCOL_INVALID");
   return record as unknown as WorkerTransportResponse;
 }
 
@@ -125,7 +125,8 @@ export class UnixCredentialWorkerServer {
           socket.end(encodeFrame({ version: 1, id, ok: true, result }, max));
         } catch (error) {
           const code = error instanceof CredentialWorkerError ? error.code : "WORKER_PROTOCOL_DENIED";
-          try { socket.end(encodeFrame({ version: 1, id, ok: false, code }, max)); } catch { socket.destroy(); }
+          const retryable = error instanceof CredentialWorkerError ? error.retryable : true;
+          try { socket.end(encodeFrame({ version: 1, id, ok: false, code, retryable }, max)); } catch { socket.destroy(); }
         } finally { active -= 1; }
       })();
     });
@@ -226,7 +227,7 @@ export class UnixCredentialWorkerClient {
     socket.write(encodeFrame({ version: 1, type: "execute", id, ...input }, max));
     const response = decodeResponse(await readOneFrame(socket, max, timeout), id);
     socket.destroy();
-    if (!response.ok) throw new CredentialWorkerError(response.code as never);
+    if (!response.ok) throw new CredentialWorkerError(response.code as never, response.retryable);
     return response.result as T;
   }
 }

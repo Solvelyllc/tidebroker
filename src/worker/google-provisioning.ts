@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isAbsolute } from "node:path";
 import { buildAuditEvent } from "../audit/index.js";
-import { GOOGLE_AUTHORIZATION_ENDPOINT, GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_LIST_READONLY_SCOPE, GOOGLE_CALENDARS_READONLY_SCOPE, GOOGLE_CLOUD_PLATFORM_SCOPE, GOOGLE_GMAIL_READONLY_SCOPE, GOOGLE_GMAIL_SEND_SCOPE, GoogleOAuthTokenExchanger } from "../connectors/google-oauth.js";
+import { GOOGLE_AUTHORIZATION_ENDPOINT, GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_LIST_READONLY_SCOPE, GOOGLE_CALENDARS_READONLY_SCOPE, GOOGLE_GMAIL_READONLY_SCOPE, GOOGLE_GMAIL_SEND_SCOPE, GoogleOAuthTokenExchanger } from "../connectors/google-oauth.js";
 import { GOOGLE_CALENDAR_ALLOWED_ACTIONS } from "../durable/accounts.js";
 import { defineAccountId, defineCredentialHandle, defineWorkspaceId } from "../core/policy.js";
 import { bindDeploymentRun } from "../core/run-binding.js";
@@ -24,6 +24,8 @@ export interface GoogleConnectionConfig {
   readonly workspaceId: string;
   readonly workspaceMembershipsPath: string;
 }
+
+export const GOOGLE_USER_OAUTH_SCOPES = Object.freeze(["openid", GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_LIST_READONLY_SCOPE, GOOGLE_CALENDARS_READONLY_SCOPE, GOOGLE_GMAIL_READONLY_SCOPE, GOOGLE_GMAIL_SEND_SCOPE] as const);
 
 export async function loadGoogleConnectionConfig(path: string): Promise<GoogleConnectionConfig> {
   if (!isAbsolute(path)) throw new Error("GOOGLE_CONNECTION_CONFIG_INVALID");
@@ -71,10 +73,10 @@ export async function runGoogleAccountConnection(worker: CredentialWorkerService
   const bindingDigest = createHash("sha256").update(`${subjectId}\0${workspaceId}\0google-calendar`, "utf8").digest("hex");
   const custodian = new OAuthCredentialCustodian({ connectorId: "google-gog" as never, state: new FileOAuthStateBackend(worker.oauthStateRoot), credentials,
     exchanger: new GoogleOAuthTokenExchanger({ clientId, ...(clientSecret === undefined ? {} : { clientSecret }), redirectUri: worker.googleOAuth.redirectUri }),
-    expectedIssuer: "https://accounts.google.com", expectedAudience: clientId, allowedScopes: ["openid", GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_LIST_READONLY_SCOPE, GOOGLE_CALENDARS_READONLY_SCOPE, GOOGLE_CLOUD_PLATFORM_SCOPE, GOOGLE_GMAIL_READONLY_SCOPE, GOOGLE_GMAIL_SEND_SCOPE],
+    expectedIssuer: "https://accounts.google.com", expectedAudience: clientId, allowedScopes: GOOGLE_USER_OAUTH_SCOPES,
     newAccountId: () => defineAccountId(`acct_${bindingDigest.slice(0, 32)}`), newCredentialHandle: () => defineCredentialHandle(`cred_${bindingDigest.slice(32)}`) });
   const verifier = randomBytes(32).toString("base64url"); const challenge = createHash("sha256").update(verifier, "ascii").digest("base64url");
-  const requestedScopes = ["openid", GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_LIST_READONLY_SCOPE, GOOGLE_CALENDARS_READONLY_SCOPE, GOOGLE_CLOUD_PLATFORM_SCOPE, GOOGLE_GMAIL_READONLY_SCOPE, GOOGLE_GMAIL_SEND_SCOPE] as const;
+  const requestedScopes = GOOGLE_USER_OAUTH_SCOPES;
   const pending = await custodian.begin({ binding: bound.binding, redirectTargetId: "google_loopback", scopes: requestedScopes, pkceChallenge: challenge });
   const authorization = new URL(GOOGLE_AUTHORIZATION_ENDPOINT);
   for (const [key, value] of Object.entries({ client_id: clientId, redirect_uri: worker.googleOAuth.redirectUri, response_type: "code", response_mode: "form_post", scope: requestedScopes.join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "false", state: pending.stateId, nonce: pending.nonce, code_challenge: challenge, code_challenge_method: "S256" })) authorization.searchParams.set(key, value);
@@ -83,7 +85,7 @@ export async function runGoogleAccountConnection(worker: CredentialWorkerService
     const server = createServer((req, res) => { void (async () => {
       try {
         const url = new URL(req.url ?? "/", "http://127.0.0.1");
-        if (req.method === "GET" && url.pathname === "/") { page(res, 200, "Connect Google", `<p>This grants Calendar access, Gmail read/send access, and project API administration for the existing deployment project. Every email send, Calendar write, or project change still requires a separate explicit approval.</p><p><a href="${authorization.toString().replaceAll("&", "&amp;")}">Continue with Google</a></p>`); return; }
+        if (req.method === "GET" && url.pathname === "/") { page(res, 200, "Connect Google", `<p>This grants only Calendar access and Gmail read/send access. Google Cloud project administration stays outside this credential. Every email send or Calendar write still requires a separate explicit approval.</p><p><a href="${authorization.toString().replaceAll("&", "&amp;")}">Continue with Google</a></p>`); return; }
         if (req.method !== "POST" || url.pathname !== redirect.pathname) { res.statusCode = 404; securityHeaders(res, "text/plain; charset=utf-8"); res.end("Not found"); return; }
         const form = await formBody(req); const stateId = form.get("state"); const code = form.get("code");
         if (stateId !== pending.stateId || !code || form.get("error")) throw new Error("OAUTH_INVALID_STATE");

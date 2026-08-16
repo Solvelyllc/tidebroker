@@ -177,9 +177,11 @@ tokens only in the Authorization header, and applies byte/structure bounds plus
 strict Calendar and Gmail projections. Gmail HTML, attachments, raw MIME, and
 arbitrary headers are omitted. External-gog mode gives the child only locale,
 private home, and a freshly minted access token in its explicit environment; it
-inherits no ambient process environment. The binary and config root are fixed by
-the worker administrator. Both adapters return bounded structures and stable
-errors without raw provider bodies, tokens, argv, or stderr.
+inherits no ambient process environment. The binary is an owner-controlled,
+non-group/world-writable regular file pinned by exact SHA-256. Each command
+requests a minimal projection, and a closed parser rejects every unknown field
+and the exact minted token value. Both adapters return bounded structures and
+stable errors without raw provider bodies, tokens, argv, or stderr.
 
 ## MCP connector safety
 
@@ -228,11 +230,18 @@ bindings and connection cache keys include it. Disconnect, compromise response,
 scope reduction, or key rotation increments the generation, disables redemption,
 closes cached connections, and denies queued work before the next provider call.
 
-Short-lived access tokens are refreshed inside the credential worker. A refresh
+Short-lived access tokens are refreshed inside the credential worker, followed
+by another generation check immediately before each direct or `gog` provider
+call. A refresh
 failure cannot cause fallback to another credential. Secret-store encryption-key
 rotation rewraps records without exposing plaintext to the Gateway and keeps an
 auditable migration state. Deployments document the maximum time for terminating
 active provider operations after revocation.
+
+Mutating intent and provider-call outcome are written to a durable journal around
+execution. A missing durable outcome or missing success audit after a possible
+provider write returns non-retriable `WORKER_OUTCOME_UNKNOWN`; callers reconcile
+instead of automatically retrying.
 
 ## Audit event contract
 

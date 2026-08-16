@@ -7,6 +7,10 @@
 > revocation, protected local transport, and durable file adapters. OS/container
 > deployment, a real-provider smoke test, and MCP schema quarantine remain gates.
 
+`npm publish` enforces these three gates through `npm run release:check`. The
+check requires owner-only evidence bound to the exact source commit. No such
+evidence is included in the repository, so public release remains blocked.
+
 ## Scope and security goals
 
 This threat model covers the actor-scoped capability broker, connector workers,

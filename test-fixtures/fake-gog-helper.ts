@@ -1,4 +1,5 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export async function createFakeGog(root: string): Promise<string> {
@@ -12,3 +13,5 @@ export async function createFakeGog(root: string): Promise<string> {
   await chmod(executablePath, 0o700);
   return executablePath;
 }
+
+export async function fileSha256(path: string): Promise<string> { return createHash("sha256").update(await readFile(path)).digest("hex"); }

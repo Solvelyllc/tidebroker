@@ -27,8 +27,8 @@ adapter. It currently provides:
 - optional dedicated-group `0660` socket access for separate Gateway/worker OS identities;
 - a runnable `tidebroker-worker` service with secure key files, health checks,
   graceful shutdown, and conservative stale-socket recovery;
-- durable private-file adapters with atomic writes and restart-safe OAuth/replay state;
-- encrypted OAuth/gog-profile custody, single-use OAuth state, PKCE, signed OIDC validation, and revocation;
+- durable private-file adapters with atomic writes and restart-safe OAuth/replay/outcome state;
+- encrypted OAuth custody, single-use OAuth state, PKCE, signed OIDC validation, and revocation;
 - a one-shot loopback-only Google connection flow whose authorization response uses POST;
 - worker-private account discovery authenticated by the same short-lived grants as execution;
 - fixed Google Calendar and Gmail operations executed either directly over bounded Google APIs or by an administrator-provisioned `gog` binary;
@@ -60,7 +60,7 @@ requester-scoped MCP   mode-0600 Unix socket
                     v
           isolated credential worker
           + encrypted credentials
-          + durable replay/audit
+          + durable replay/outcomes/audit
 ```
 
 Public SDK modules are available from `@solvely/tidebroker/sdk`:
@@ -70,7 +70,7 @@ Public SDK modules are available from `@solvely/tidebroker/sdk`:
 - `cli`: safe CLI binding, allowlist, and execution primitives;
 - `credentials`: encrypted records, OAuth custody, and revocation;
 - `durable`: private atomic credential, metadata, subject, membership, OAuth,
-  replay, and audit adapters;
+  replay, mutation-outcome, and audit adapters;
 - `worker`: authenticated grants, replay prevention, and isolated dispatch;
 - `connectors`: fixed Google Calendar and Gmail operations with worker-owned backend selection;
 - `audit`: closed-schema events and sink contracts. Callers must
@@ -109,9 +109,9 @@ There is no automatic fallback and the backend is never model-visible.
 - `direct` uses fixed `https://www.googleapis.com` paths, header-only access tokens,
   redirects disabled, bounded JSON, and strict Calendar/Gmail projections. Gmail
   HTML, attachments, raw MIME, and arbitrary headers are never returned.
-- `gog` invokes an externally provisioned, fixed-path binary with a private state
-  root, closed child environment, exact command allowlists, bounded JSON, and Gmail
-  bodies over stdin.
+- `gog` invokes an externally provisioned, owner/mode/SHA-256-verified binary with
+  a private state root, closed child environment, exact command allowlists,
+  minimal projections, strict closed JSON schemas, and Gmail bodies over stdin.
 
 Tidebroker does **not** bundle the `gog` binary or its source. The included
 `scripts/gog-safety-profile.yaml` is only a reproducible recipe for administrators
@@ -169,9 +169,12 @@ npm pack --dry-run
 `npm pack` runs the full build, validation, and test suite through `prepack`, so a
 clean checkout cannot produce a package missing its runtime files.
 
-Before a public ClawHub release, choose a license, push the exact release commit
+Before a public ClawHub release, push the exact release commit
 to a public source repository, test the packed artifact through OpenClaw's
-managed `npm-pack:` install path, and run:
+managed `npm-pack:` install path, and produce owner-only release evidence for OS
+isolation, a real-provider smoke test, and MCP schema quarantine. `npm publish`
+is blocked unless `TIDEBROKER_RELEASE_EVIDENCE_PATH` names an owner-only evidence
+file bound to the exact `HEAD`; validate it with `npm run release:check`. Then run:
 
 ```bash
 clawhub package validate . --openclaw /path/to/openclaw

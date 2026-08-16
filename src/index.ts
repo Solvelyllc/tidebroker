@@ -5,7 +5,6 @@ import { resolveActorBrokerPluginConfig } from "./plugin/config.js";
 import { createGoogleCalendarTool } from "./plugin/google-tool.js";
 import { createGoogleCalendarWriteTools } from "./plugin/google-write-tools.js";
 import { requireGoogleWriteApproval } from "./plugin/write-approval.js";
-import { createGoogleProjectAdminTool } from "./plugin/google-project-admin-tool.js";
 import { createGoogleGmailTools } from "./plugin/google-gmail-tools.js";
 
 const statusParameters = Type.Object({}, { additionalProperties: false });
@@ -62,7 +61,6 @@ export default definePluginEntry({
           return createGoogleCalendarWriteTools(deployment, toolContext).find((tool) => tool.name === name) ?? null;
         }, { name, optional: true });
       }
-      api.registerTool((toolContext) => trustedActorFromHostContext(toolContext).ok ? createGoogleProjectAdminTool(deployment, toolContext) : null, { name: "google_project_services_enable", optional: true });
       for (const name of ["google_gmail_messages_search", "google_gmail_message_get", "google_gmail_message_send"] as const) {
         api.registerTool((toolContext) => {
           if (!trustedActorFromHostContext(toolContext).ok) return null;

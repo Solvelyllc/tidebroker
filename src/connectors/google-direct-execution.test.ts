@@ -23,7 +23,7 @@ describe("direct Google execution", () => {
   it("lists Calendar events at the fixed endpoint without exposing credentials", async () => {
     const { calls, fetcher } = sequential(tokenResponse(), new Response(JSON.stringify({ items: [{ id: "event_1", summary: "External title", access_token: ACCESS }] }), { status: 200 }));
     const operation = createGoogleGogCalendarListOperation({ backend: "direct", direct: { fetch: fetcher } });
-    const output = await operation.execute({ claims: {} as never, material }, { maxResults: 2 });
+    const output = await operation.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { maxResults: 2 });
     expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=2");
     expect(calls[1]!.init?.method).toBe("GET");
     expect(new Headers(calls[1]!.init?.headers).get("authorization")).toBe(`Bearer ${ACCESS}`);
@@ -35,8 +35,8 @@ describe("direct Google execution", () => {
     const operations = createGoogleCalendarWriteOperations({ backend: "direct", direct: { fetch: fetcher } });
     const create = operations.find((item) => item.action === GOOGLE_CALENDAR_EVENT_CREATE_ACTION)!;
     const remove = operations.find((item) => item.action === GOOGLE_CALENDAR_EVENT_DELETE_ACTION)!;
-    await create.execute({ claims: {} as never, material }, { summary: "Approved", start: "2026-08-16T12:00:00Z", end: "2026-08-16T12:30:00Z", attendees: ["person@example.test"] });
-    await remove.execute({ claims: {} as never, material }, { eventId: "event_12345" });
+    await create.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { summary: "Approved", start: "2026-08-16T12:00:00Z", end: "2026-08-16T12:30:00Z", attendees: ["person@example.test"] });
+    await remove.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { eventId: "event_12345" });
     expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all");
     expect(calls[1]!.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ summary: "Approved", start: { dateTime: "2026-08-16T12:00:00Z" }, end: { dateTime: "2026-08-16T12:30:00Z" }, attendees: [{ email: "person@example.test" }] });
@@ -53,8 +53,8 @@ describe("direct Google execution", () => {
     const operations = createGoogleGmailOperations({ backend: "direct", direct: { fetch: fetcher } });
     const search = operations.find((item) => item.action === GOOGLE_GMAIL_MESSAGES_SEARCH_ACTION)!;
     const get = operations.find((item) => item.action === GOOGLE_GMAIL_MESSAGE_GET_ACTION)!;
-    const found = await search.execute({ claims: {} as never, material }, { query: "is:unread", maxResults: 1 });
-    const read = await get.execute({ claims: {} as never, material }, { messageId: "msg_1" });
+    const found = await search.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { query: "is:unread", maxResults: 1 });
+    const read = await get.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { messageId: "msg_1" });
     expect(calls[1]!.url).toBe("https://www.googleapis.com/gmail/v1/users/me/messages?q=is%3Aunread&maxResults=1");
     expect(calls[3]!.url).toContain("/gmail/v1/users/me/messages/msg_1?format=metadata");
     expect(calls[5]!.url).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/msg_1?format=full");
@@ -66,7 +66,7 @@ describe("direct Google execution", () => {
   it("sends Gmail as plain-text MIME without returning the request content", async () => {
     const { calls, fetcher } = sequential(tokenResponse(), new Response(JSON.stringify({ id: "sent_1", threadId: "thread_1" }), { status: 200 }));
     const operation = createGoogleGmailOperations({ backend: "direct", direct: { fetch: fetcher } }).find((item) => item.action === GOOGLE_GMAIL_MESSAGE_SEND_ACTION)!;
-    const output = await operation.execute({ claims: {} as never, material }, { to: ["recipient@example.test"], subject: "Approved subject", textBody: "Approved body" });
+    const output = await operation.execute({ claims: {} as never, material, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { to: ["recipient@example.test"], subject: "Approved subject", textBody: "Approved body" });
     expect(calls[1]!.url).toBe("https://www.googleapis.com/gmail/v1/users/me/messages/send"); expect(calls[1]!.init?.method).toBe("POST");
     const raw = Buffer.from(JSON.parse(String(calls[1]!.init?.body)).raw, "base64url").toString("utf8");
     expect(raw).toContain("Content-Type: text/plain"); expect(Buffer.from(raw.split("\r\n\r\n")[1]!, "base64").toString("utf8")).toBe("Approved body");
@@ -76,7 +76,18 @@ describe("direct Google execution", () => {
   it("fails closed on malformed, oversized, and non-success provider responses", async () => {
     for (const response of [new Response("not-json", { status: 200 }), new Response(JSON.stringify({ error: "denied" }), { status: 403 }), new Response(JSON.stringify({ value: "x".repeat(2048) }), { status: 200 })]) {
       const { fetcher } = sequential(tokenResponse(), response);
-      await expect(googleApiRequest({ fetch: fetcher, maxResponseBytes: 1024 }, material, { method: "GET", path: "/calendar/v3/calendars/primary/events" })).rejects.toThrow(/^GOOGLE_DIRECT_/u);
+      await expect(googleApiRequest({ fetch: fetcher, maxResponseBytes: 1024 }, material, { method: "GET", path: "/calendar/v3/calendars/primary/events", assertCredentialActive: async () => {}, markProviderCallStarted: () => {} })).rejects.toThrow(/^GOOGLE_DIRECT_/u);
     }
+  });
+
+  it("rechecks credential generation after refresh and before direct provider I/O", async () => {
+    const { calls, fetcher } = sequential(tokenResponse());
+    await expect(googleApiRequest({ fetch: fetcher }, material, {
+      method: "GET",
+      path: "/calendar/v3/calendars/primary/events",
+      assertCredentialActive: async () => { throw new Error("CREDENTIAL_GENERATION_MISMATCH"); },
+      markProviderCallStarted: () => {},
+    })).rejects.toThrow("CREDENTIAL_GENERATION_MISMATCH");
+    expect(calls).toHaveLength(1);
   });
 });

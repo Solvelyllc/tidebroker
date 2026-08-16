@@ -1,100 +1,96 @@
 import { spawn } from "node:child_process";
-import { realpath, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { CredentialMaterial } from "../credentials/store.js";
 import { googleAccessToken } from "./google-oauth.js";
 
-export const GOG_COMMANDS = [
-  "calendar.events",
-  "calendar.create",
-  "calendar.update",
-  "calendar.delete",
-  "gmail.messages.search",
-  "gmail.get",
-  "gmail.send",
-] as const;
+export const GOG_COMMANDS = ["calendar.events", "calendar.create", "calendar.update", "calendar.delete", "gmail.messages.search", "gmail.get", "gmail.send"] as const;
 export type GogCommand = (typeof GOG_COMMANDS)[number];
 
 export interface GogExecutionOptions {
   readonly executablePath: string;
+  readonly executableSha256: string;
   readonly configRoot: string;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
   readonly fetch?: typeof fetch;
 }
 
-const SECRET_FIELD = /(?:^|_)(?:access_?token|api_?key|authorization|client_?secret|credentials?|password|private_?key|refresh_?token|secret|token)(?:$|_)/i;
+const PROJECTIONS: Readonly<Record<GogCommand, string>> = Object.freeze({
+  "calendar.events": "id,summary,status,start,end,location",
+  "calendar.create": "id,summary,status,start,end,location",
+  "calendar.update": "id,summary,status,start,end,location",
+  "calendar.delete": "deleted,calendarId,eventId",
+  "gmail.messages.search": "id,threadId,date,internalDateIso,from,subject,labels",
+  "gmail.get": "id,threadId,labelIds,snippet,internalDate,sizeEstimate,headers,body",
+  "gmail.send": "messageId,threadId",
+});
 
-export function sanitizeGogOutput(value: unknown, depth = 0): unknown {
-  if (depth > 20) throw new Error("GOG_OUTPUT_INVALID");
-  if (Array.isArray(value)) return value.map((item) => sanitizeGogOutput(item, depth + 1));
-  if (typeof value === "object" && value !== null) {
-    const output: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value)) if (!SECRET_FIELD.test(key)) output[key] = sanitizeGogOutput(child, depth + 1);
-    return output;
+type Runtime = Readonly<Required<Omit<GogExecutionOptions, "fetch">> & Pick<GogExecutionOptions, "fetch">>;
+function plain(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
+function exact(record: Record<string, unknown>, allowed: readonly string[]): void { const keys = new Set(allowed); if (Object.keys(record).some((key) => !keys.has(key))) throw new Error("GOG_OUTPUT_INVALID"); }
+function text(value: unknown, required = false): void { if (value === undefined && !required) return; if (typeof value !== "string" || value.length > 256 * 1024 || required && value.length === 0) throw new Error("GOG_OUTPUT_INVALID"); }
+function stringList(value: unknown): void { if (!Array.isArray(value) || value.length > 10_000 || value.some((item) => typeof item !== "string" || item.length > 16 * 1024)) throw new Error("GOG_OUTPUT_INVALID"); }
+function dateTime(value: unknown): void { if (!plain(value)) throw new Error("GOG_OUTPUT_INVALID"); exact(value, ["date", "dateTime", "timeZone"]); text(value.date); text(value.dateTime); text(value.timeZone); if (value.date === undefined && value.dateTime === undefined) throw new Error("GOG_OUTPUT_INVALID"); }
+function event(value: unknown): void { if (!plain(value)) throw new Error("GOG_OUTPUT_INVALID"); exact(value, ["id", "summary", "status", "start", "end", "location"]); text(value.id, true); text(value.summary); text(value.status); text(value.location); if (value.start !== undefined) dateTime(value.start); if (value.end !== undefined) dateTime(value.end); }
+function headers(value: unknown): void { if (!plain(value)) throw new Error("GOG_OUTPUT_INVALID"); exact(value, ["from", "to", "cc", "bcc", "subject", "date", "message_id", "in_reply_to", "references"]); for (const child of Object.values(value)) text(child); }
+
+/** Parses only the fields selected for a specific command and rejects every unknown field. */
+export function parseGogOutput(command: GogCommand, value: unknown, accessToken?: string): unknown {
+  if (accessToken && JSON.stringify(value).includes(accessToken)) throw new Error("GOG_OUTPUT_INVALID");
+  switch (command) {
+    case "calendar.events": if (!Array.isArray(value) || value.length > 10_000) throw new Error("GOG_OUTPUT_INVALID"); value.forEach(event); break;
+    case "calendar.create": case "calendar.update": event(value); break;
+    case "calendar.delete": if (!plain(value)) throw new Error("GOG_OUTPUT_INVALID"); exact(value, ["deleted", "calendarId", "eventId"]); if (value.deleted !== true) throw new Error("GOG_OUTPUT_INVALID"); text(value.calendarId, true); text(value.eventId, true); break;
+    case "gmail.messages.search":
+      if (!Array.isArray(value) || value.length > 10_000) throw new Error("GOG_OUTPUT_INVALID");
+      for (const item of value) { if (!plain(item)) throw new Error("GOG_OUTPUT_INVALID"); exact(item, ["id", "threadId", "date", "internalDateIso", "from", "subject", "labels"]); text(item.id, true); text(item.threadId); text(item.date); text(item.internalDateIso); text(item.from); text(item.subject); if (item.labels !== undefined) stringList(item.labels); }
+      break;
+    case "gmail.get":
+      if (!plain(value)) throw new Error("GOG_OUTPUT_INVALID"); exact(value, ["id", "threadId", "labelIds", "snippet", "internalDate", "sizeEstimate", "headers", "body"]); text(value.id, true); text(value.threadId); text(value.snippet); text(value.body); if (value.labelIds !== undefined) stringList(value.labelIds); if (value.internalDate !== undefined && (!Number.isSafeInteger(value.internalDate) || (value.internalDate as number) < 0) || value.sizeEstimate !== undefined && (!Number.isSafeInteger(value.sizeEstimate) || (value.sizeEstimate as number) < 0)) throw new Error("GOG_OUTPUT_INVALID"); if (value.headers !== undefined) headers(value.headers);
+      break;
+    case "gmail.send": if (!plain(value)) throw new Error("GOG_OUTPUT_INVALID"); exact(value, ["messageId", "threadId"]); text(value.messageId, true); text(value.threadId); break;
   }
   return value;
 }
 
-export function validateGogExecutionOptions(options: GogExecutionOptions): Readonly<Required<Omit<GogExecutionOptions, "fetch">> & Pick<GogExecutionOptions, "fetch">> {
-  if (!isAbsolute(options.executablePath) || !isAbsolute(options.configRoot)) throw new TypeError("gog paths must be absolute.");
+export function validateGogExecutionOptions(options: GogExecutionOptions): Runtime {
+  if (!isAbsolute(options.executablePath) || !isAbsolute(options.configRoot) || !/^[a-f0-9]{64}$/.test(options.executableSha256)) throw new TypeError("gog paths and digest must be pinned.");
   const timeoutMs = options.timeoutMs ?? 30_000; const maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000 || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1024 || maxOutputBytes > 4 * 1024 * 1024) throw new TypeError("gog limits are invalid.");
   return Object.freeze({ ...options, timeoutMs, maxOutputBytes });
 }
 
-/**
- * Executes one baked/allowlisted gog command. The worker supplies a freshly
- * minted access token only in the child's closed environment: never argv,
- * persistent gog state, logs, audit events, or provider URLs.
- */
+export async function verifyGogExecutable(runtime: Pick<Runtime, "executablePath" | "executableSha256">): Promise<string> {
+  const configured = await lstat(runtime.executablePath); const executable = await realpath(runtime.executablePath); const info = await stat(executable);
+  if (configured.isSymbolicLink() || !info.isFile() || (info.mode & 0o100) === 0 || (info.mode & 0o022) !== 0 || typeof process.getuid === "function" && info.uid !== process.getuid()) throw new Error("GOG_EXECUTABLE_INVALID");
+  const digest = createHash("sha256").update(await readFile(executable)).digest("hex");
+  if (digest !== runtime.executableSha256) throw new Error("GOG_EXECUTABLE_INVALID");
+  return executable;
+}
+
+/** Executes one baked/allowlisted gog command with a closed environment. */
 export async function runGogOAuthCommand(options: GogExecutionOptions, material: Extract<CredentialMaterial, { kind: "oauth2" }>, input: {
-  readonly command: GogCommand;
-  readonly argv: readonly string[];
-  readonly mutating: boolean;
-  readonly allowGmailSend?: boolean;
-  readonly stdin?: string;
+  readonly command: GogCommand; readonly argv: readonly string[]; readonly mutating: boolean; readonly allowGmailSend?: boolean; readonly stdin?: string; readonly assertCredentialActive: () => Promise<void>; readonly markProviderCallStarted: () => void;
 }): Promise<unknown> {
   const runtime = validateGogExecutionOptions(options);
   if (!GOG_COMMANDS.includes(input.command) || input.argv.some((part) => typeof part !== "string" || part.includes("\0"))) throw new Error("GOG_COMMAND_INVALID");
   if (input.command === "gmail.send" && input.allowGmailSend !== true || input.command !== "gmail.send" && input.allowGmailSend === true) throw new Error("GOG_COMMAND_INVALID");
-  const [home, executable] = await Promise.all([realpath(runtime.configRoot), realpath(runtime.executablePath)]);
-  const [homeStat, executableStat] = await Promise.all([stat(home), stat(executable)]);
-  if (!homeStat.isDirectory() || !executableStat.isFile()) throw new Error("GOG_RUNTIME_INVALID");
+  const [home, executable] = await Promise.all([realpath(runtime.configRoot), verifyGogExecutable(runtime)]); const homeStat = await stat(home);
+  if (!homeStat.isDirectory()) throw new Error("GOG_RUNTIME_INVALID");
   const accessToken = await googleAccessToken(material, runtime.fetch ?? fetch);
-  const argv = [
-    "--enable-commands-exact", input.command,
-    ...(input.mutating ? [] : ["--readonly"]),
-    ...(input.allowGmailSend === true ? [] : ["--gmail-no-send"]),
-    "--no-input", "--wrap-untrusted", "--json",
-    ...input.argv,
-  ];
+  await input.assertCredentialActive();
+  input.markProviderCallStarted();
+  const argv = ["--enable-commands-exact", input.command, ...(input.mutating ? [] : ["--readonly"]), ...(input.allowGmailSend === true ? [] : ["--gmail-no-send"]), "--no-input", "--wrap-untrusted", "--json", "--results-only", "--select", PROJECTIONS[input.command], ...input.argv];
   return await new Promise((resolve, reject) => {
-    const child = spawn(executable, argv, {
-      cwd: home,
-      env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", GOG_HOME: home, GOG_ACCESS_TOKEN: accessToken },
-      shell: false,
-      stdio: [input.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-      windowsHide: true,
-      detached: process.platform !== "win32",
-    });
+    const child = spawn(executable, argv, { cwd: home, env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", GOG_HOME: home, GOG_ACCESS_TOKEN: accessToken }, shell: false, stdio: [input.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
     const chunks: Buffer[] = []; let bytes = 0; let terminal = "GOG_EXECUTION_FAILED"; let settled = false;
-    const stop = (code: string) => {
-      terminal = code;
-      if (process.platform !== "win32" && child.pid !== undefined) { try { process.kill(-child.pid, "SIGKILL"); return; } catch {} }
-      child.kill("SIGKILL");
-    };
+    const stop = (code: string) => { terminal = code; if (process.platform !== "win32" && child.pid !== undefined) { try { process.kill(-child.pid, "SIGKILL"); return; } catch {} } child.kill("SIGKILL"); };
     const timer = setTimeout(() => stop("GOG_TIMEOUT"), runtime.timeoutMs); timer.unref();
     const count = (chunk: Buffer, retain: boolean) => { bytes += chunk.length; if (bytes > runtime.maxOutputBytes) stop("GOG_OUTPUT_LIMIT"); else if (retain) chunks.push(chunk); };
-    child.stdout!.on("data", (chunk: Buffer) => count(chunk, true));
-    child.stderr!.on("data", (chunk: Buffer) => count(chunk, false));
-    child.on("error", () => stop("GOG_EXECUTION_FAILED"));
-    child.on("close", (exitCode) => {
-      clearTimeout(timer); if (settled) return; settled = true;
-      if (exitCode !== 0) { reject(new Error(terminal)); return; }
-      try { resolve(sanitizeGogOutput(JSON.parse(Buffer.concat(chunks).toString("utf8")))); }
-      catch { reject(new Error("GOG_OUTPUT_INVALID")); }
-    });
+    child.stdout!.on("data", (chunk: Buffer) => count(chunk, true)); child.stderr!.on("data", (chunk: Buffer) => count(chunk, false)); child.on("error", () => stop("GOG_EXECUTION_FAILED"));
+    child.on("close", (exitCode) => { clearTimeout(timer); if (settled) return; settled = true; if (exitCode !== 0) { reject(new Error(terminal)); return; } try { resolve(parseGogOutput(input.command, JSON.parse(Buffer.concat(chunks).toString("utf8")), accessToken)); } catch { reject(new Error("GOG_OUTPUT_INVALID")); } });
     if (input.stdin !== undefined && child.stdin) { child.stdin.on("error", () => stop("GOG_EXECUTION_FAILED")); child.stdin.end(input.stdin, "utf8"); }
   });
 }

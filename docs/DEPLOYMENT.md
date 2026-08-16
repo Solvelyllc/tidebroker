@@ -20,6 +20,7 @@ The configuration contains paths and opaque identifiers only.
   "metadataRoot": "/var/lib/tidebroker-worker/metadata",
   "replayRoot": "/var/lib/tidebroker-worker/replay",
   "auditRoot": "/var/lib/tidebroker-worker/audit",
+  "outcomeRoot": "/var/lib/tidebroker-worker/outcomes",
   "oauthStateRoot": "/var/lib/tidebroker-worker/oauth-state",
   "accountBindingsPath": "/var/lib/tidebroker-worker/accounts/bindings.json",
   "grant": {
@@ -74,6 +75,7 @@ To use an externally installed `gog` instead, replace `googleExecution` with:
   "googleExecution": {
     "backend": "gog",
     "executablePath": "/usr/local/lib/tidebroker/gog-safe",
+    "executableSha256": "<lowercase SHA-256 of the reviewed gog-safe binary>",
     "configRoot": "/var/lib/tidebroker-worker/gog",
     "timeoutMs": 30000,
     "maxOutputBytes": 1048576
@@ -82,8 +84,9 @@ To use an externally installed `gog` instead, replace `googleExecution` with:
 ```
 
 Tidebroker bundles no `gog` executable or source. Administrators choosing this mode
-must provision the absolute executable path and private config root themselves. The
-included safety-profile YAML is a build recipe, not a vendored CLI. Invalid or
+must provision an owner-controlled, non-group/world-writable executable, its exact
+SHA-256, and a private config root. The included safety-profile YAML is a build
+recipe, not a vendored CLI. Legacy profile-backed credentials are rejected. Invalid or
 ambiguous backend configurations fail startup; Tidebroker never falls back between modes.
 
 The shared socket directory is pre-created by the administrator, owned by the
@@ -222,13 +225,21 @@ Approval is bound to the requester, tool call id, operation, and canonical
 payload digest. The approval ticket is single-use and expires after two minutes.
 The same digest is authenticated in the short-lived worker grant, so input
 changed after approval fails closed at the isolated worker boundary. Mutating
-operations also fail closed when audit storage is unavailable.
+operations also fail closed when audit storage is unavailable. The worker
+durably records intent before execution and success/failure immediately after
+execution. If the provider may have accepted a write but durable outcome or
+success-audit delivery cannot be confirmed, it returns non-retriable
+`WORKER_OUTCOME_UNKNOWN`; reconcile the journal and provider state instead of retrying.
 
 Google consent uses `calendar.events` plus read-only CalendarList and Calendars
 metadata scopes required by gog's timezone/calendar resolution. Existing read-only
 connections must reconnect once after upgrading; no deployment may silently
 upgrade an existing credential's scope. Reconnecting increments the credential
 generation so pre-reconnect grants cannot become valid again.
+
+The user OAuth credential never requests `cloud-platform` and Tidebroker does
+not expose Google Cloud project-administration tools. Enable required APIs using
+a separately administered project credential outside Tidebroker's user connector.
 
 Each collaborator must have a separate deployment-owned subject mapping and
 workspace membership. Never share one raw host identity or one approval token
@@ -243,9 +254,9 @@ Version 1.0 exposes `google_gmail_messages_search`, `google_gmail_message_get`, 
 and encrypted worker credential. Enable `gmail.googleapis.com` in the existing
 deployment project and reconnect once with `gmail.readonly` and `gmail.send`.
 
-Search is capped at 25 results. Reads use `gog gmail messages search` and
-`gog gmail get --sanitize-content`; output is bounded, wrapped as untrusted, and
-stripped of credential-shaped fields. Attachments are not downloaded or exposed.
+Search is capped at 25 results. Direct and `gog` responses are bounded, wrapped
+as untrusted, and projected through backend/command-specific closed schemas.
+Unknown `gog` fields are rejected. Attachments are not downloaded or exposed.
 
 Sending accepts address-only recipients, one subject, and a bounded plain-text
 body. It requires a critical `allow-once` approval bound to the exact requester,

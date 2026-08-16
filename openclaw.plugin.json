@@ -46,7 +46,7 @@
             "accountId": { "type": "string", "minLength": 1 },
             "credentialHandle": { "type": "string", "minLength": 1 },
             "credentialGeneration": { "type": "integer", "minimum": 1 },
-            "allowedActions": { "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": { "enum": ["calendar.events.list", "calendar.events.create", "calendar.events.update", "calendar.events.delete", "project.services.enable", "gmail.messages.search", "gmail.messages.get", "gmail.messages.send"] } },
+            "allowedActions": { "type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": { "enum": ["calendar.events.list", "calendar.events.create", "calendar.events.update", "calendar.events.delete", "gmail.messages.search", "gmail.messages.get", "gmail.messages.send"] } },
             "enabled": { "type": "boolean" }
           }
         }
@@ -64,7 +64,6 @@
       "google_calendar_event_create",
       "google_calendar_event_update",
       "google_calendar_event_delete",
-      "google_project_services_enable",
       "google_gmail_messages_search",
       "google_gmail_message_get",
       "google_gmail_message_send"
@@ -84,9 +83,6 @@
       "optional": true
     },
     "google_calendar_event_delete": {
-      "optional": true
-    },
-    "google_project_services_enable": {
       "optional": true
     },
     "google_gmail_messages_search": {

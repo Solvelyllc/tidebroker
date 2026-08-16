@@ -6,6 +6,10 @@ const root = resolve(import.meta.dirname, "..");
 const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 const manifest = JSON.parse(await readFile(resolve(root, "openclaw.plugin.json"), "utf8"));
 
+if (packageJson.scripts?.prepublishOnly !== "npm run release:check") {
+  throw new Error("public publish must enforce release evidence");
+}
+
 if (manifest.id !== "tidebroker") {
   throw new Error("manifest id must be tidebroker");
 }

@@ -34,8 +34,15 @@ export async function executeGoogleOperation(config: ActorBrokerPluginConfig, co
   return await worker.execute({ ...authorized, input });
 }
 
+export function nonRetriableOutcomeUnknown(error: unknown): { content: readonly [{ type: "text"; text: string }]; details: Readonly<{ ok: false; outcome: "unknown"; retryable: false; code: "WORKER_OUTCOME_UNKNOWN" }> } | null {
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : error instanceof Error ? error.message : undefined;
+  if (code !== "WORKER_OUTCOME_UNKNOWN") return null;
+  const details = Object.freeze({ ok: false as const, outcome: "unknown" as const, retryable: false as const, code: "WORKER_OUTCOME_UNKNOWN" as const });
+  return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+}
+
 export function createGoogleCalendarWriteTools(config: ActorBrokerPluginConfig, context: HostActorContext & { agentId?: string | null }) {
-  const make = (name: string, label: string, description: string, parameters: TSchema, action: string, validate: (value: unknown) => unknown) => ({ name, label, description, parameters, execute: async (toolCallId: string, raw: unknown) => { consumeGoogleWriteApproval(name, toolCallId, raw, context); const input = validate(raw); try { const result = await executeGoogleOperation(config, context, toolCallId, action, input); return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result }; } catch (error) { const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : error instanceof Error && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.message) ? error.message : "GOOGLE_CONNECTOR_DENIED"; throw new Error(code); } } });
+  const make = (name: string, label: string, description: string, parameters: TSchema, action: string, validate: (value: unknown) => unknown) => ({ name, label, description, parameters, execute: async (toolCallId: string, raw: unknown) => { consumeGoogleWriteApproval(name, toolCallId, raw, context); const input = validate(raw); try { const result = await executeGoogleOperation(config, context, toolCallId, action, input); return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result }; } catch (error) { const unknown = nonRetriableOutcomeUnknown(error); if (unknown) return unknown; const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : error instanceof Error && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.message) ? error.message : "GOOGLE_CONNECTOR_DENIED"; throw new Error(code); } } });
   return [
     make("google_calendar_event_create", "Create Google Calendar Event", "Create an event only after explicit one-time operator approval.", createParameters, GOOGLE_CALENDAR_EVENT_CREATE_ACTION, validateGoogleCalendarEventCreateInput),
     make("google_calendar_event_update", "Update Google Calendar Event", "Update an event only after explicit one-time operator approval.", updateParameters, GOOGLE_CALENDAR_EVENT_UPDATE_ACTION, validateGoogleCalendarEventUpdateInput),

@@ -4,10 +4,9 @@ import { defineSubjectId, type SubjectId } from "../core/subject.js";
 import { atomicWriteJson, ensurePrivateDirectory, readJsonFile, withFileLock } from "./files.js";
 import { GOOGLE_CALENDAR_EVENTS_LIST_ACTION } from "../connectors/google-gog.js";
 import { GOOGLE_CALENDAR_WRITE_ACTIONS } from "../connectors/google-calendar-write.js";
-import { GOOGLE_PROJECT_SERVICES_ENABLE_ACTION } from "../connectors/google-cloud-admin.js";
 import { GOOGLE_GMAIL_ACTIONS } from "../connectors/google-gmail.js";
 
-export const GOOGLE_CALENDAR_ALLOWED_ACTIONS = [GOOGLE_CALENDAR_EVENTS_LIST_ACTION, ...GOOGLE_CALENDAR_WRITE_ACTIONS, GOOGLE_PROJECT_SERVICES_ENABLE_ACTION, ...GOOGLE_GMAIL_ACTIONS] as const;
+export const GOOGLE_CALENDAR_ALLOWED_ACTIONS = [GOOGLE_CALENDAR_EVENTS_LIST_ACTION, ...GOOGLE_CALENDAR_WRITE_ACTIONS, ...GOOGLE_GMAIL_ACTIONS] as const;
 export type GoogleCalendarAllowedAction = (typeof GOOGLE_CALENDAR_ALLOWED_ACTIONS)[number];
 
 export interface DurableAccountBinding {

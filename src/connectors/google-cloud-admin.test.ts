@@ -13,6 +13,6 @@ describe("Google project administration connector", () => {
       return new Response(JSON.stringify({ name: "operations/service-enable-1" }), { status: 200 });
     });
     const operation = createGoogleProjectAdminOperations("deployment-project", { fetch: fetcher as typeof fetch }).find((item) => item.action === GOOGLE_PROJECT_SERVICES_ENABLE_ACTION)!;
-    await expect(operation.execute({ claims: {} as never, material: { kind: "oauth2", refreshToken: "refresh-canary", clientId: "client-id" } }, { services: ["calendar-json.googleapis.com"] })).resolves.toEqual({ enabled: ["calendar-json.googleapis.com"] });
+    await expect(operation.execute({ claims: {} as never, material: { kind: "oauth2", refreshToken: "refresh-canary", clientId: "client-id" }, assertCredentialActive: async () => {}, markProviderCallStarted: () => {} }, { services: ["calendar-json.googleapis.com"] })).resolves.toEqual({ enabled: ["calendar-json.googleapis.com"] });
   });
 });

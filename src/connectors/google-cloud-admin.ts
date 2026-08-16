@@ -32,9 +32,11 @@ export function createGoogleProjectAdminOperations(projectId: string, options: {
   const fetcher = options.fetch ?? fetch;
   return Object.freeze([{
     connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_PROJECT_SERVICES_ENABLE_ACTION, mutating: true,
-    async execute({ material }, raw) {
+    async execute({ material, assertCredentialActive, markProviderCallStarted }, raw) {
       const input = validateGoogleProjectServicesEnableInput(raw); const accessToken = await googleAccessToken(oauth(material), fetcher);
       for (const service of input.services) {
+        await assertCredentialActive();
+        markProviderCallStarted();
         const url = `https://serviceusage.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/services/${encodeURIComponent(service)}:enable`;
         const response = await fetcher(url, { method: "POST", headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: "{}", redirect: "error", signal: AbortSignal.timeout(30_000) });
         if (!response.ok) throw new Error("GOOGLE_PROJECT_SERVICE_ENABLE_FAILED");

@@ -29,6 +29,8 @@
     "plugin:build": "npm run build",
     "plugin:validate": "npm run build && node ./scripts/validate-package.mjs && npm test",
     "check": "npm run plugin:validate",
+    "release:check": "node ./scripts/check-release-gates.mjs",
+    "prepublishOnly": "npm run release:check",
     "test": "vitest run --config ./vitest.config.ts"
   },
   "files": [

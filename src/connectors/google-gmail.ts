@@ -112,37 +112,37 @@ export function createGoogleGmailOperations(options: GoogleWorkspaceExecutionOpt
     return await runGogOAuthCommand(options.gog, oauth(material), input);
   };
   return Object.freeze([
-    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_GMAIL_MESSAGES_SEARCH_ACTION, mutating: false, async execute({ material }, raw) {
+    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_GMAIL_MESSAGES_SEARCH_ACTION, mutating: false, async execute({ material, assertCredentialActive, markProviderCallStarted }, raw) {
       const input = validateGoogleGmailMessagesSearchInput(raw);
       if (options.backend === "direct") {
         const query = new URLSearchParams({ q: input.query ?? "in:anywhere", maxResults: String(input.maxResults ?? 10) });
-        const listing = externalRecord(await googleApiRequest(options.direct ?? {}, material, { method: "GET", path: "/gmail/v1/users/me/messages", query }));
+        const listing = externalRecord(await googleApiRequest(options.direct ?? {}, material, { method: "GET", path: "/gmail/v1/users/me/messages", query, assertCredentialActive, markProviderCallStarted }));
         if (!listing || !Array.isArray(listing.messages)) throw new Error("GOOGLE_DIRECT_RESPONSE_INVALID");
         const messages = [];
         for (const candidate of listing.messages.slice(0, input.maxResults ?? 10)) {
           const id = boundedExternalText(externalRecord(candidate)?.id, 256); if (!id || !MESSAGE_ID.test(id)) continue;
           const metadataQuery = new URLSearchParams({ format: "metadata" }); for (const name of ["From", "Subject", "Date"]) metadataQuery.append("metadataHeaders", name);
-          messages.push(messageProjection(await googleApiRequest(options.direct ?? {}, material, { method: "GET", path: `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, query: metadataQuery }), false));
+          messages.push(messageProjection(await googleApiRequest(options.direct ?? {}, material, { method: "GET", path: `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, query: metadataQuery, assertCredentialActive, markProviderCallStarted }), false));
         }
         return Object.freeze({ source: "google-api:gmail", untrusted: true, result: Object.freeze({ messages: Object.freeze(messages) }) });
       }
-      const result = await run(material, { command: "gmail.messages.search", mutating: false, argv: ["gmail", "messages", "search", input.query ?? "in:anywhere", "--max", String(input.maxResults ?? 10)] });
+      const result = await run(material, { command: "gmail.messages.search", mutating: false, argv: ["gmail", "messages", "search", input.query ?? "in:anywhere", "--max", String(input.maxResults ?? 10)], assertCredentialActive, markProviderCallStarted });
       return Object.freeze({ source: "gog:gmail", untrusted: true, result });
     } },
-    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_GMAIL_MESSAGE_GET_ACTION, mutating: false, async execute({ material }, raw) {
+    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_GMAIL_MESSAGE_GET_ACTION, mutating: false, async execute({ material, assertCredentialActive, markProviderCallStarted }, raw) {
       const input = validateGoogleGmailMessageGetInput(raw);
-      if (options.backend === "direct") return Object.freeze({ source: "google-api:gmail", untrusted: true, result: messageProjection(await googleApiRequest(options.direct ?? {}, material, { method: "GET", path: `/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}`, query: new URLSearchParams({ format: "full" }) }), true) });
-      const result = await run(material, { command: "gmail.get", mutating: false, argv: ["gmail", "get", input.messageId, "--sanitize-content"] });
+      if (options.backend === "direct") return Object.freeze({ source: "google-api:gmail", untrusted: true, result: messageProjection(await googleApiRequest(options.direct ?? {}, material, { method: "GET", path: `/gmail/v1/users/me/messages/${encodeURIComponent(input.messageId)}`, query: new URLSearchParams({ format: "full" }), assertCredentialActive, markProviderCallStarted }), true) });
+      const result = await run(material, { command: "gmail.get", mutating: false, argv: ["gmail", "get", input.messageId, "--sanitize-content"], assertCredentialActive, markProviderCallStarted });
       return Object.freeze({ source: "gog:gmail", untrusted: true, result });
     } },
-    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_GMAIL_MESSAGE_SEND_ACTION, mutating: true, async execute({ material }, raw) {
+    { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: GOOGLE_GMAIL_MESSAGE_SEND_ACTION, mutating: true, async execute({ material, assertCredentialActive, markProviderCallStarted }, raw) {
       const input = validateGoogleGmailMessageSendInput(raw);
       if (options.backend === "direct") {
-        const response = externalRecord(await googleApiRequest(options.direct ?? {}, material, { method: "POST", path: "/gmail/v1/users/me/messages/send", body: { raw: Buffer.from(mime(input), "utf8").toString("base64url") } }));
+        const response = externalRecord(await googleApiRequest(options.direct ?? {}, material, { method: "POST", path: "/gmail/v1/users/me/messages/send", body: { raw: Buffer.from(mime(input), "utf8").toString("base64url") }, assertCredentialActive, markProviderCallStarted }));
         const id = boundedExternalText(response?.id, 256); if (!id) throw new Error("GOOGLE_DIRECT_RESPONSE_INVALID");
         return Object.freeze({ sent: true, result: Object.freeze({ id, ...(boundedExternalText(response?.threadId, 256) ? { threadId: boundedExternalText(response?.threadId, 256) } : {}) }) });
       }
-      const result = await run(material, { command: "gmail.send", mutating: true, allowGmailSend: true, stdin: input.textBody, argv: ["gmail", "send", "--to", input.to.join(","), ...(input.cc ? ["--cc", input.cc.join(",")] : []), ...(input.bcc ? ["--bcc", input.bcc.join(",")] : []), "--subject", input.subject, "--body-file", "-"] });
+      const result = await run(material, { command: "gmail.send", mutating: true, allowGmailSend: true, stdin: input.textBody, argv: ["gmail", "send", "--to", input.to.join(","), ...(input.cc ? ["--cc", input.cc.join(",")] : []), ...(input.bcc ? ["--bcc", input.bcc.join(",")] : []), "--subject", input.subject, "--body-file", "-"], assertCredentialActive, markProviderCallStarted });
       return Object.freeze({ sent: true, result });
     } },
   ]);
