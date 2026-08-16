@@ -56,7 +56,7 @@ for (const relativePath of workflowPaths) {
   }
 }
 const releaseWorkflow = await readFile(resolve(root, ".github/workflows/release-artifacts.yml"), "utf8");
-for (const required of ["git verify-tag", "git verify-commit", "npm run release:check", "build-release-artifacts.mjs", "attest-build-provenance"]) {
+for (const required of ["git verify-tag", "git verify-commit", "TIDEBROKER_OS_EVIDENCE_B64", "TIDEBROKER_PROVIDER_EVIDENCE_B64", "TIDEBROKER_MCP_EVIDENCE_B64", "npm run release:check", "build-release-artifacts.mjs", "attest-build-provenance"]) {
   if (!releaseWorkflow.includes(required)) throw new Error(`release workflow must enforce ${required}`);
 }
 const entry = await import(pathToFileURL(resolve(root, "dist/index.js")).href);

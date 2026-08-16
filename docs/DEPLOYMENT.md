@@ -269,6 +269,27 @@ Unknown `gog` fields are rejected. Attachments are not downloaded or exposed.
 Direct Google and OAuth HTTP bodies are consumed through a streaming byte limiter
 that cancels the response as soon as the configured threshold is crossed.
 
+## Provider egress isolation
+
+Run the worker with a systemd deny-all IP policy and route HTTPS through a
+loopback-only forward proxy. The proxy allowlist for the direct backend is exactly
+`oauth2.googleapis.com`, `www.googleapis.com`, and `accounts.google.com` on port
+443. Deny every other destination and do not expose the proxy listener beyond
+loopback.
+
+Node 26 can consume the proxy through `NODE_USE_ENV_PROXY=1` with `HTTPS_PROXY`
+and `HTTP_PROXY` set to the loopback listener. The worker unit must apply
+`IPAddressDeny=any` and allow only `127.0.0.0/8` plus `::1/128`. Make the worker
+depend on the proxy service so a missing proxy fails closed. Before collecting
+OS evidence, prove all three behaviors from an equivalent systemd cgroup:
+
+- the Google JWKS endpoint succeeds through the proxy;
+- an unrelated HTTPS origin is denied by the proxy;
+- a direct external TCP connection is denied by the cgroup.
+
+Do not substitute a code-level URL check for the systemd deny-all policy. Review
+the proxy configuration whenever the connector's fixed provider origins change.
+
 ## Release evidence and provenance
 
 `TIDEBROKER_RELEASE_EVIDENCE_PATH` must name an owner-only summary JSON file.

@@ -1,18 +1,15 @@
 # Public release procedure
 
-Tidebroker remains private until every item below is complete. A passing source
-test suite is package evidence, not public-launch evidence.
+Tidebroker's source repository is public. A passing source test suite and public
+visibility are package evidence, not public-launch evidence.
 
 ## 1. Repository security
 
-1. Enable GitHub Code Security for the private repository, or make the repository
-   public only after the privacy and operational gates below are complete.
-2. Set the repository variable `TIDEBROKER_CODEQL_ENABLED=true`.
-3. Run the `CodeQL` workflow and resolve every alert before release.
-4. Require the CI and CodeQL checks on the default branch.
-
-The checked-in CodeQL workflow is deliberately inert until the variable is set,
-because GitHub rejects private-repository uploads when Code Security is disabled.
+1. Keep the repository variable `TIDEBROKER_CODEQL_ENABLED=true`.
+2. Run the `CodeQL` workflow and resolve every alert before release.
+3. Require the CI and CodeQL checks on `main`.
+4. Confirm both checks also run on the exact `release/**` candidate commit before
+   fast-forward promotion to `main`.
 
 ## 2. Operational evidence
 
@@ -84,12 +81,12 @@ npm run release:check
 1. Add each approved release signer's SSH public key to the tracked
    `.github/release-allowed-signers` file using Git's allowed-signers format.
 2. Sign the final release commit and annotated tag with that key.
-3. Configure a dedicated self-hosted runner labeled `tidebroker-release`. It must
-   have read-only access to the completed evidence directory, not provider
-   credentials.
-4. Set `TIDEBROKER_RELEASE_EVIDENCE_PATH` in the runner environment, protect the
-   `production-release` GitHub environment, and set the repository variable
-   `TIDEBROKER_RELEASE_AUTOMATION_ENABLED=true`.
+3. Protect the `production-release` GitHub environment and add the completed,
+   content-free evidence JSON as base64 environment secrets named
+   `TIDEBROKER_OS_EVIDENCE_B64`, `TIDEBROKER_PROVIDER_EVIDENCE_B64`, and
+   `TIDEBROKER_MCP_EVIDENCE_B64`. Never store provider content or credentials.
+4. Set the repository variable `TIDEBROKER_RELEASE_AUTOMATION_ENABLED=true` only
+   after all three environment secrets are bound to the exact signed release commit.
 5. Dispatch `Release artifacts` for the signed tag.
 
 The workflow verifies the commit and tag signatures, reruns source/package/audit
