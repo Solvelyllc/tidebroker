@@ -1,3 +1,5 @@
+![Tidebroker banner](https://github.com/user-attachments/assets/32da87d1-3f7a-4314-a132-ec5de5e2b00a)
+
 # Tidebroker
 
 An OpenClaw plugin foundation for binding CLI, MCP, and HTTP connector execution to the human who initiated the current turn.
