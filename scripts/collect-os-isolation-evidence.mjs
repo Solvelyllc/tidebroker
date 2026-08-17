@@ -46,7 +46,8 @@ function exactConfig(value) {
 export function providerEgressRestricted(deny, allow) {
   if (!Array.isArray(deny) || !Array.isArray(allow)) return false;
   const deniesAll = deny.includes("any") || deny.includes("0.0.0.0/0") && deny.includes("::/0");
-  return deniesAll && allow.length > 0;
+  const allowed = new Set(allow);
+  return deniesAll && allowed.size === 2 && allowed.has("127.0.0.0/8") && allowed.has("::1/128");
 }
 
 export async function collectOsIsolationEvidence(options) {

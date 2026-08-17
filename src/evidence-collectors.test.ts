@@ -15,9 +15,11 @@ const providerChecks = ["calendar-read", "gmail-read", "approved-write", "unmapp
 describe("release evidence collectors", () => {
   it("accepts systemd's normalized deny-all routes only with an explicit allowlist", () => {
     expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], ["127.0.0.0/8", "::1/128"])).toBe(true);
-    expect(providerEgressRestricted(["any"], ["127.0.0.0/8"])).toBe(true);
+    expect(providerEgressRestricted(["any"], ["127.0.0.0/8", "::1/128"])).toBe(true);
     expect(providerEgressRestricted(["0.0.0.0/0"], ["127.0.0.0/8"])).toBe(false);
     expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], [])).toBe(false);
+    expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], ["0.0.0.0/0"])).toBe(false);
+    expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], ["127.0.0.0/8", "::1/128", "10.0.0.0/8"])).toBe(false);
   });
 
   it("records only a complete, recent, owner-only provider result", async () => {
