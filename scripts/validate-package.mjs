@@ -20,6 +20,12 @@ if (manifest.version !== packageJson.version) {
 if (packageJson.private === true) {
   throw new Error("ClawHub release packages must not be marked private");
 }
+if (typeof packageJson.openclaw?.compat?.pluginApi !== "string" || !packageJson.openclaw.compat.pluginApi.trim()) {
+  throw new Error("ClawHub code plugins must declare openclaw.compat.pluginApi");
+}
+if (typeof packageJson.openclaw?.build?.openclawVersion !== "string" || !packageJson.openclaw.build.openclawVersion.trim()) {
+  throw new Error("ClawHub code plugins must declare openclaw.build.openclawVersion");
+}
 const packedFiles = new Set(packageJson.files ?? []);
 for (const required of ["dist", "docs", "openclaw.plugin.json", "scripts/gog-safety-profile.yaml", "README.md"]) {
   if (!packedFiles.has(required)) throw new Error(`package files must include ${required}`);
