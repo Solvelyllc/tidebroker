@@ -44,7 +44,7 @@ describe("credential worker bootstrap", () => {
     const gogRoot = join(root, "gog"); const gogPath = join(root, "gog-safe"); await mkdir(gogRoot, { mode: 0o700 });
     const defaults = ["gmail", "calendar", "chat", "classroom", "drive", "driveactivity", "drivelabels", "docs", "slides", "contacts", "tasks", "sheets", "people", "forms", "sites", "meet", "appscript", "analytics", "searchconsole", "ads", "youtube", "photos"];
     const services = [...defaults.map((service) => ({ service, user: true, scopes: [`scope:${service}`] })), { service: "groups", user: false, scopes: ["scope:groups"] }, { service: "keep", user: false, scopes: ["scope:keep"] }, { service: "admin", user: false, scopes: ["scope:admin"] }, { service: "photospicker", user: false, scopes: ["scope:photospicker"] }];
-    await writeFile(gogPath, `#!/usr/bin/node\nprocess.stdout.write(${JSON.stringify(JSON.stringify({ services }))})\n`, { mode: 0o700 });
+    await writeFile(gogPath, `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(JSON.stringify({ services }))})\n`, { mode: 0o700 });
     await writeFile(keyPath, Buffer.alloc(32, 4), { mode: 0o600 }); await writeFile(encryptionPath, Buffer.alloc(32, 5), { mode: 0o600 });
     await writeFile(clientIdPath, "synthetic-client-id", { mode: 0o600 }); await writeFile(clientSecretPath, "synthetic-client-secret", { mode: 0o600 });
     const config = validateCredentialWorkerServiceConfig({ version: 1, socketPath: join(root, "worker.sock"), recoverStaleSocket: true,
