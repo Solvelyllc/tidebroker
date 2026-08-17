@@ -40,7 +40,7 @@ jobs:
           REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REPOSITORY" = "Solvelyllc/tidebroker"
+          test "$GITHUB_REPOSITORY" = "Solvelyllc/Tidebroker"
           test "$GITHUB_REF" = "refs/heads/main"
           git fetch --force --tags origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
