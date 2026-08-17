@@ -3,12 +3,12 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadGogPermissionShapeContracts, validateGogPermissionShape } from "./gog-permission-shapes.mjs";
 
 const configPath = "/etc/solvely/worker.json";
-const smokeBinaryPath = "/tmp/gog-tidebroker-permission-smoke";
+const smokeBinaryPath = process.env.TIDEBROKER_GOG_SMOKE_BINARY_PATH;
 const connectorId = "google-gog";
 const maxBytes = 2 * 1024 * 1024;
 const timeoutMs = 30_000;
@@ -50,12 +50,12 @@ function parseOutput(stdout) {
   return JSON.parse(stdout);
 }
 
-async function runGog(accessToken, shapeManifest, command, argv, projection) {
+async function runGog(accessToken, shapeManifest, executableFd, command, argv, projection) {
   return await new Promise((resolve) => {
     const outputTransform = projection === undefined
       ? ["--results-only"]
       : ["--select", projection];
-    const child = spawn(smokeBinaryPath, [...outputTransform, ...argv], {
+    const child = spawn("/proc/self/fd/3", [...outputTransform, ...argv], {
       env: {
         LANG: "C.UTF-8",
         LC_ALL: "C.UTF-8",
@@ -65,7 +65,7 @@ async function runGog(accessToken, shapeManifest, command, argv, projection) {
         NO_PROXY: "127.0.0.1,::1,localhost",
       },
       shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", executableFd],
       detached: true,
     });
     const stdout = [];
@@ -151,6 +151,7 @@ async function directProbe(accessToken, name, url, options = {}) {
 }
 
 async function main() {
+  if (typeof smokeBinaryPath !== "string" || !isAbsolute(smokeBinaryPath) || smokeBinaryPath.includes("\0")) throw new Error("SMOKE_BINARY_INVALID");
   const workerEntry = await realpath("/usr/local/bin/tidebroker-worker");
   const packageRoot = dirname(dirname(workerEntry));
   const moduleAt = (relative) => import(pathToFileURL(join(packageRoot, relative)).href);
@@ -167,11 +168,8 @@ async function main() {
   try {
     const binary = await binaryHandle.stat();
     if (!binary.isFile() || binary.uid !== process.getuid() || (binary.mode & 0o111) === 0 || (binary.mode & 0o022) !== 0) throw new Error("SMOKE_BINARY_INVALID");
-  } finally {
-    await binaryHandle.close();
-  }
 
-  const config = await loadCredentialWorkerServiceConfig(configPath);
+    const config = await loadCredentialWorkerServiceConfig(configPath);
   const keys = new SecureFileCredentialEncryptionKeys(config.encryption.activeKeyId, config.encryption.keys.map((entry) => ({ id: entry.id, path: entry.keyFile })));
   const credentials = new EncryptedCredentialStore(new FileCredentialRecordBackend(config.credentialRoot, config.metadataRoot), keys);
   const bindings = (await new FileAccountBindingStore(config.accountBindingsPath).list()).filter((entry) => entry.enabled && entry.connectorId === connectorId);
@@ -223,7 +221,7 @@ async function main() {
     ["photos", ["photos", "list", "--max", "1"]],
   ];
   const raw = [];
-  for (const [command, argv] of tests) raw.push(await runGog(accessToken, shapeManifest, command, argv));
+  for (const [command, argv] of tests) raw.push(await runGog(accessToken, shapeManifest, binaryHandle.fd, command, argv));
 
   const drive = raw.find((result) => result.command === "drive");
   const items = Array.isArray(drive?.value) ? drive.value : Array.isArray(drive?.value?.files) ? drive.value.files : [];
@@ -250,7 +248,7 @@ async function main() {
       : command === "sheets"
         ? "spreadsheetId,sheets.properties.sheetId,sheets.properties.gridProperties.rowCount,sheets.properties.gridProperties.columnCount,externalContent.untrusted,externalContent.source,externalContent.wrapped"
         : undefined;
-    raw.push(await runGog(accessToken, shapeManifest, command, argv, projection));
+    raw.push(await runGog(accessToken, shapeManifest, binaryHandle.fd, command, argv, projection));
   }
   raw.push(Object.freeze({ command: "meet", status: "not_testable_needs_meeting_reference" }));
   raw.push(Object.freeze({ command: "photospicker", status: "not_testable_needs_picker_session" }));
@@ -260,6 +258,9 @@ async function main() {
   const gate = Object.freeze({ status: directFailures.length === 0 && gogFailures.length === 0 ? "passed" : "failed", directFailures: Object.freeze(directFailures), gogShapeOrExecutionFailures: Object.freeze(gogFailures) });
   process.stdout.write(`${JSON.stringify({ version: 1, connectorId, gogVersion: shapeManifest.gogVersion, grantScopeCount: selected.redeemed.metadata.scopes.length, gate, direct, gogcli: raw.map(publicResult) }, null, 2)}\n`);
   if (gate.status !== "passed") process.exitCode = 1;
+  } finally {
+    await binaryHandle.close();
+  }
 }
 
 main().catch(() => {
