@@ -76,25 +76,28 @@ TIDEBROKER_RELEASE_EVIDENCE_PATH=/secure/release/summary.json \
 npm run release:check
 ```
 
-## 3. Signed source and artifacts
+## 3. Keyless trusted release
 
-1. Add each approved release signer's SSH public key to the tracked
-   `.github/release-allowed-signers` file using Git's allowed-signers format.
-2. Sign the final release commit and annotated tag with that key.
-3. Protect the `production-release` GitHub environment and add the completed,
-   content-free evidence JSON as base64 environment secrets named
+1. Merge the release candidate through protected `main` after the required CI
+   and CodeQL checks pass. The release workflow refuses any other ref or a
+   checkout that differs from current `origin/main`.
+2. Add the completed, content-free evidence JSON as base64 secrets in the
+   `production-release` environment named
    `TIDEBROKER_OS_EVIDENCE_B64`, `TIDEBROKER_PROVIDER_EVIDENCE_B64`, and
    `TIDEBROKER_MCP_EVIDENCE_B64`. Never store provider content or credentials.
-4. Set the repository variable `TIDEBROKER_RELEASE_AUTOMATION_ENABLED=true` only
-   after all three environment secrets are bound to the exact signed release commit.
-5. Dispatch `Release artifacts` for the signed tag.
+3. Set the repository variable `TIDEBROKER_RELEASE_AUTOMATION_ENABLED=true` only
+   after all three evidence files are bound to the exact release commit.
+4. Dispatch `Release artifacts` from `main` with the version from `package.json`
+   as `vX.Y.Z`.
 
-The workflow verifies the commit and tag signatures, reruns source/package/audit
-checks, enforces deployment evidence, and produces the npm tarball, SPDX SBOM,
-SHA-256 checksums, release manifest, and GitHub build-provenance attestation.
-Download and inspect the workflow artifact before attaching all files to a draft
-GitHub release. Publish only after the asset set is complete; immutable releases
-cannot be repaired afterward.
+The workflow reruns source/package/audit checks, enforces deployment evidence,
+creates the annotated version tag, and produces the npm tarball, SPDX SBOM,
+SHA-256 checksums, and release manifest. GitHub Actions uses OIDC-backed Sigstore
+attestations for both build provenance and the package SBOM and attaches the
+verification bundles and their checksums. It uploads the verified asset set to
+a draft and then publishes it; repository release immutability locks the
+resulting tag and assets and creates GitHub's separate release attestation. No
+long-lived release-signing key is used.
 
 ## 4. Public-visibility review
 

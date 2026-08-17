@@ -56,7 +56,10 @@ for (const relativePath of workflowPaths) {
   }
 }
 const releaseWorkflow = await readFile(resolve(root, ".github/workflows/release-artifacts.yml"), "utf8");
-for (const required of ["git verify-tag", "git verify-commit", "TIDEBROKER_OS_EVIDENCE_B64", "TIDEBROKER_PROVIDER_EVIDENCE_B64", "TIDEBROKER_MCP_EVIDENCE_B64", "npm run release:check", "build-release-artifacts.mjs", "attest-build-provenance"]) {
+for (const forbidden of ["git verify-tag", "git verify-commit", "release-allowed-signers"]) {
+  if (releaseWorkflow.includes(forbidden)) throw new Error(`release workflow must not require manual signing: ${forbidden}`);
+}
+for (const required of ["contents: write", "github.ref == 'refs/heads/main'", "git rev-parse origin/main", "git tag -a", "TIDEBROKER_OS_EVIDENCE_B64", "TIDEBROKER_PROVIDER_EVIDENCE_B64", "TIDEBROKER_MCP_EVIDENCE_B64", "npm run release:check", "build-release-artifacts.mjs", "sha256sum --check", "actions/attest@", "sbom-path:", "bundle-path", "ATTESTATION_SHA256SUMS", "gh release create", "gh release upload", "gh release edit"]) {
   if (!releaseWorkflow.includes(required)) throw new Error(`release workflow must enforce ${required}`);
 }
 const entry = await import(pathToFileURL(resolve(root, "dist/index.js")).href);

@@ -4,40 +4,65 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing signed vX.Y.Z tag to package
+        description: Version tag to create from current main (for example, v1.1.3)
         required: true
         type: string
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   attestations: write
 
+concurrency:
+  group: tidebroker-public-release
+  cancel-in-progress: false
+
 jobs:
-  package:
-    if: ${{ vars.TIDEBROKER_RELEASE_AUTOMATION_ENABLED == 'true' }}
+  release:
+    if: ${{ vars.TIDEBROKER_RELEASE_AUTOMATION_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     environment: production-release
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
-      - name: Verify signed source
+      - name: Verify trusted source and prepare local tag
+        id: release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          test -s .github/release-allowed-signers
-          git config gpg.format ssh
-          git config gpg.ssh.allowedSignersFile "$PWD/.github/release-allowed-signers"
-          git verify-tag "${{ inputs.release_tag }}"
-          git verify-commit HEAD
-          test "$(git rev-list -n 1 "${{ inputs.release_tag }}")" = "$(git rev-parse HEAD)"
+          test "$GITHUB_REPOSITORY" = "Solvelyllc/tidebroker"
+          test "$GITHUB_REF" = "refs/heads/main"
+          git fetch --force --tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+
+          package_version="$(node -p 'require("./package.json").version')"
+          release_tag="v${package_version}"
+          test "$REQUESTED_TAG" = "$release_tag"
+          test "$release_tag" != "v"
+
+          release_state="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          test "$release_state" != "false"
+
+          if git show-ref --verify --quiet "refs/tags/$release_tag"; then
+            test "$(git rev-list -n 1 "$release_tag")" = "$(git rev-parse HEAD)"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$release_tag" -m "Tidebroker $release_tag"
+          fi
+
+          printf 'tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'source_commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - run: npm ci
       - run: npm run check
       - run: npm audit --audit-level=low
@@ -66,14 +91,64 @@ jobs:
           TIDEBROKER_RELEASE_EVIDENCE_PATH="$evidence_dir/summary.json" npm run release:check
       - name: Build distributable, SBOM, and checksums
         run: node ./scripts/build-release-artifacts.mjs "$RUNNER_TEMP/tidebroker-release"
+      - name: Verify release bundle
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.release.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/tidebroker-release"
+          sha256sum --check SHA256SUMS
+          test "$(node -p 'require("./release-manifest.json").sourceCommit')" = "$SOURCE_COMMIT"
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/tidebroker-release/*
+      - name: Attest package SBOM
+        id: sbom_attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/tidebroker-release/*.tgz
+          sbom-path: ${{ runner.temp }}/tidebroker-release/*.spdx.json
+      - name: Add verification bundles
+        shell: bash
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom_attestation.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$PROVENANCE_BUNDLE"
+          test -s "$SBOM_BUNDLE"
+          install -m 0600 "$PROVENANCE_BUNDLE" "$RUNNER_TEMP/tidebroker-release/build-provenance.jsonl"
+          install -m 0600 "$SBOM_BUNDLE" "$RUNNER_TEMP/tidebroker-release/sbom-attestation.jsonl"
+          cd "$RUNNER_TEMP/tidebroker-release"
+          sha256sum build-provenance.jsonl sbom-attestation.jsonl > ATTESTATION_SHA256SUMS
+          sha256sum --check ATTESTATION_SHA256SUMS
       - name: Upload release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: tidebroker-${{ inputs.release_tag }}
+          name: tidebroker-${{ steps.release.outputs.tag }}
           path: ${{ runner.temp }}/tidebroker-release/*
           if-no-files-found: error
           retention-days: 30
+      - name: Publish immutable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+
+          release_state="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if test -z "$release_state"; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes --title "Tidebroker $RELEASE_TAG"
+          else
+            test "$release_state" = "true"
+          fi
+
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP"/tidebroker-release/*
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest --verify-tag
