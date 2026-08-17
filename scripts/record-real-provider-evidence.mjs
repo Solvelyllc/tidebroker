@@ -5,7 +5,7 @@ import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeEvidenceFile } from "./write-evidence-file.mjs";
 
-const IDS = ["calendar-read", "gmail-read", "approved-write", "unmapped-requester-denied"];
+const IDS = ["calendar-read", "gmail-read", "google-capability-shapes", "approved-write", "unmapped-requester-denied"];
 function fail() { throw new Error("REAL_PROVIDER_EVIDENCE_FAILED"); }
 function exact(value, keys) { return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)); }
 

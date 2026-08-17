@@ -50,10 +50,14 @@ Using a dedicated test account and the normal OpenClaw approval UI, exercise:
 
 - one bounded Calendar read;
 - one bounded Gmail read;
+- the full Google capability smoke matrix, with every enabled gog command matching
+  its reviewed version-pinned shape contract;
 - one reversible approved write, followed by cleanup;
 - one unmapped requester, which must receive no connector capability.
 
-Record only the four statuses in an owner-only copy of
+The capability-shape status must remain failed while any selected API is disabled,
+resource-dependent coverage is missing, a shape is unreviewed, or projected JSON
+violates its contract. Record only the five statuses in an owner-only copy of
 `docs/release-evidence/real-provider-results.example.json`. Never record provider
 content, account names, email addresses, credential handles, or tokens.
 

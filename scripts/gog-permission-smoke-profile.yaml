@@ -1,0 +1,81 @@
+name: tidebroker-permission-smoke
+description: Read-only gogcli surface used to validate authorized Google capabilities.
+
+version: true
+schema: true
+
+chat:
+  spaces:
+    list: true
+
+classroom:
+  courses:
+    list: true
+
+drive:
+  ls: true
+  activity:
+    query: true
+  labels:
+    list: true
+
+docs:
+  info: true
+
+slides:
+  info: true
+
+contacts:
+  list: true
+
+tasks:
+  lists:
+    list: true
+
+sheets:
+  metadata: true
+
+people:
+  me: true
+
+forms:
+  get: true
+
+sites:
+  list: true
+
+meet:
+  get: true
+
+appscript:
+  get: true
+
+analytics:
+  accounts: true
+
+searchconsole:
+  sites:
+    list: true
+
+ads:
+  customers:
+    list: true
+
+youtube:
+  channels:
+    list: true
+
+photos:
+  list: true
+  picker:
+    get: true
+
+auth:
+  services: true
+
+locked-flags:
+  no-input: true
+  readonly: true
+  gmail-no-send: true
+  wrap-untrusted: true
+  json: true

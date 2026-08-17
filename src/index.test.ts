@@ -69,16 +69,22 @@ describe("tidebroker plugin entry", () => {
     await writeSubjectMappings(subjectPath, [[actor.actorId, subjectId]]); await writeWorkspaceMemberships(membershipsPath, [[subjectId, workspaceId]]);
     const credentials = new EncryptedCredentialStore(new MemoryCredentialRecordBackend(), new StaticCredentialEncryptionKeys("key_1", new Uint8Array(32).fill(2)));
     await credentials.store({ subjectId, principalKind: "human", workspaceId, connectorId: GOOGLE_GOG_CONNECTOR_ID, accountId, credentialHandle, generation: 1, scopes: ["calendar.readonly"] }, { kind: "gog-profile", configDirectory: "/worker/profile", accountAlias: "acct_opaque123" });
-    await new FileAccountBindingStore(accountBindingsPath).upsert({ subjectId, workspaceId, accountId, credentialHandle, credentialGeneration: 1, allowedActions: ["calendar.events.list"], enabled: true });
+    await new FileAccountBindingStore(accountBindingsPath).upsert({ subjectId, workspaceId, connectorId: GOOGLE_GOG_CONNECTOR_ID, accountId, credentialHandle, credentialGeneration: 1, allowedActions: ["calendar.events.list"], enabled: true });
     const execute = vi.fn(async ({ claims }) => {
       expect(claims.subjectId).toBe(subjectId); expect(claims.workspaceId).toBe(workspaceId);
       return { items: [{ id: "event_1" }] };
     });
-    const worker = new IsolatedCredentialWorker({ verifier: new CredentialGrantVerifier({ secret: new Uint8Array(32).fill(9), issuer: "gateway", audience: "worker" }), credentials, replay: new MemoryGrantReplayStore(), audit: new MemoryAuditSink() }, [createAccountBindingResolveOperation(accountBindingsPath), { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: "calendar.events.list", mutating: false, execute }]);
+    const worker = new IsolatedCredentialWorker({ verifier: new CredentialGrantVerifier({ secret: new Uint8Array(32).fill(9), issuer: "gateway", audience: "worker" }), credentials, replay: new MemoryGrantReplayStore(), audit: new MemoryAuditSink() }, [createAccountBindingResolveOperation(accountBindingsPath, GOOGLE_GOG_CONNECTOR_ID), { connectorId: GOOGLE_GOG_CONNECTOR_ID, action: "calendar.events.list", mutating: false, execute }]);
     const server = new UnixCredentialWorkerServer({ socketPath, worker }); await server.start();
     try {
       const api = apiFor({ enabled: true, workerSocketPath: socketPath, subjectMappingsPath: subjectPath, workspaceMembershipsPath: membershipsPath, gatewayAuditRoot, workerAccountDiscovery: true, grant: { issuer: "gateway", audience: "worker", keyFile: keyPath }, agentWorkspaces: [{ agentId: "company", workspaceId }] });
       entry.register(api as never);
+      const registeredNames = api.registerTool.mock.calls.map((call) => call[1]?.name);
+      expect(registeredNames).toEqual(expect.arrayContaining([
+        "google_drive_files_list",
+        "google_docs_document_metadata",
+        "google_sheets_spreadsheet_metadata",
+      ]));
       const registration = api.registerTool.mock.calls.find((call) => call[1]?.name === "google_calendar_events_list");
       expect(registration).toBeDefined();
       const tool = registration?.[0](host);

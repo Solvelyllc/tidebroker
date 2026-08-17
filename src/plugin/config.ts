@@ -1,17 +1,17 @@
 import { isAbsolute } from "node:path";
 import { lstatSync } from "node:fs";
-import { defineAccountId, defineCredentialHandle, defineWorkspaceId, type AccountId, type CredentialHandle, type WorkspaceId } from "../core/policy.js";
+import { defineAccountId, defineConnectorId, defineCredentialHandle, defineWorkspaceId, type AccountId, type ConnectorId, type CredentialHandle, type WorkspaceId } from "../core/policy.js";
 import { defineSubjectId, type SubjectId } from "../core/subject.js";
-import { GOOGLE_CALENDAR_EVENTS_LIST_ACTION } from "../connectors/google-gog.js";
-import { GOOGLE_CALENDAR_ALLOWED_ACTIONS, type GoogleCalendarAllowedAction } from "../durable/accounts.js";
+import { isConnectorActionId } from "../core/capabilities.js";
 
 export interface PluginAccountBindingConfig {
   readonly subjectId: SubjectId;
   readonly workspaceId: WorkspaceId;
+  readonly connectorId: ConnectorId;
   readonly accountId: AccountId;
   readonly credentialHandle: CredentialHandle;
   readonly credentialGeneration: number;
-  readonly allowedActions: readonly GoogleCalendarAllowedAction[];
+  readonly allowedActions: readonly string[];
   readonly enabled: boolean;
 }
 
@@ -51,10 +51,10 @@ export function resolveActorBrokerPluginConfig(value: unknown): ActorBrokerPlugi
   }
   const accounts: PluginAccountBindingConfig[] = []; const bindings = new Set<string>();
   for (const item of (value.accounts ?? []) as unknown[]) {
-    if (!plain(item) || !exact(item, ["subjectId", "workspaceId", "accountId", "credentialHandle", "credentialGeneration", "allowedActions", "enabled"]) || typeof item.subjectId !== "string" || typeof item.workspaceId !== "string" || typeof item.accountId !== "string" || typeof item.credentialHandle !== "string" || !Number.isSafeInteger(item.credentialGeneration) || (item.credentialGeneration as number) < 1 || item.enabled !== true && item.enabled !== false || !Array.isArray(item.allowedActions) || item.allowedActions.length < 1 || item.allowedActions.length > GOOGLE_CALENDAR_ALLOWED_ACTIONS.length || new Set(item.allowedActions).size !== item.allowedActions.length || item.allowedActions.some((action) => !GOOGLE_CALENDAR_ALLOWED_ACTIONS.includes(action as GoogleCalendarAllowedAction))) throw new Error("PLUGIN_CONFIG_INVALID");
-    const subjectId = defineSubjectId(item.subjectId); const workspaceId = defineWorkspaceId(item.workspaceId); const accountId = defineAccountId(item.accountId); const credentialHandle = defineCredentialHandle(item.credentialHandle);
-    const bindingKey = `${subjectId}\0${workspaceId}`; if (bindings.has(bindingKey)) throw new Error("PLUGIN_CONFIG_INVALID"); bindings.add(bindingKey);
-    accounts.push({ subjectId, workspaceId, accountId, credentialHandle, credentialGeneration: item.credentialGeneration as number, allowedActions: Object.freeze([...(item.allowedActions as GoogleCalendarAllowedAction[])]), enabled: item.enabled });
+    if (!plain(item) || !exact(item, ["subjectId", "workspaceId", "connectorId", "accountId", "credentialHandle", "credentialGeneration", "allowedActions", "enabled"]) || typeof item.subjectId !== "string" || typeof item.workspaceId !== "string" || typeof item.connectorId !== "string" || typeof item.accountId !== "string" || typeof item.credentialHandle !== "string" || !Number.isSafeInteger(item.credentialGeneration) || (item.credentialGeneration as number) < 1 || item.enabled !== true && item.enabled !== false || !Array.isArray(item.allowedActions) || item.allowedActions.length > 256 || new Set(item.allowedActions).size !== item.allowedActions.length || item.allowedActions.some((action) => !isConnectorActionId(action))) throw new Error("PLUGIN_CONFIG_INVALID");
+    const subjectId = defineSubjectId(item.subjectId); const workspaceId = defineWorkspaceId(item.workspaceId); const connectorId = defineConnectorId(item.connectorId); const accountId = defineAccountId(item.accountId); const credentialHandle = defineCredentialHandle(item.credentialHandle);
+    const bindingKey = `${subjectId}\0${workspaceId}\0${connectorId}`; if (bindings.has(bindingKey)) throw new Error("PLUGIN_CONFIG_INVALID"); bindings.add(bindingKey);
+    accounts.push({ subjectId, workspaceId, connectorId, accountId, credentialHandle, credentialGeneration: item.credentialGeneration as number, allowedActions: Object.freeze([...(item.allowedActions as string[])]), enabled: item.enabled });
   }
   return Object.freeze({ enabled: true, workerSocketPath: value.workerSocketPath as string, ...(value.workerSocketAccess === undefined ? {} : { workerSocketAccess: value.workerSocketAccess }), ...(value.workerSocketGroupId === undefined ? {} : { workerSocketGroupId: value.workerSocketGroupId as number }), subjectMappingsPath: value.subjectMappingsPath as string, workspaceMembershipsPath: value.workspaceMembershipsPath as string, gatewayAuditRoot: value.gatewayAuditRoot as string, ...(value.workerAccountDiscovery === undefined ? {} : { workerAccountDiscovery: value.workerAccountDiscovery as boolean }), grant: Object.freeze(value.grant as unknown as ActorBrokerPluginConfig["grant"]), agentWorkspaces: Object.freeze(agentWorkspaces.map((entry) => Object.freeze(entry))), accounts: Object.freeze(accounts.map((entry) => Object.freeze(entry))) });
 }

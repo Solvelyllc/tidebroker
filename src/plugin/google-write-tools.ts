@@ -25,11 +25,11 @@ export async function executeGoogleOperation(config: ActorBrokerPluginConfig, co
   const key = await readSecureKeyFile(config.grant.keyFile); const memberships = new FileWorkspaceMembershipStore(config.workspaceMembershipsPath); const subjects = new FileSubjectMappingStore(config.subjectMappingsPath); const workspaces = durableWorkspaceSelection({ selectedWorkspace: () => workspaceId, memberships });
   const bound = await bindTrustedRun({ hostContext: context, subjects, workspaces }); if (!bound.ok) throw new Error(bound.code);
   const grants = new CredentialGrantIssuer({ secret: key, issuer: config.grant.issuer, audience: config.grant.audience }); const worker = new UnixCredentialWorkerClient({ socketPath: config.workerSocketPath });
-  let configured = config.accounts;
+  let configured = config.accounts.filter((account) => account.connectorId === GOOGLE_GOG_CONNECTOR_ID);
   if (config.workerAccountDiscovery) {
     const discovered = await worker.execute({ connectorId: GOOGLE_GOG_CONNECTOR_ID, action: ACCOUNT_BINDING_RESOLVE_ACTION, grant: grants.issue({ subjectId: bound.binding.subjectId, principalKind: "human", workspaceId: bound.binding.workspaceId, connectorId: GOOGLE_GOG_CONNECTOR_ID, action: ACCOUNT_BINDING_RESOLVE_ACTION, credentialHandle: ACCOUNT_BINDING_DISCOVERY_HANDLE, credentialGeneration: 1, requestId: `req_${globalThis.crypto.randomUUID().replaceAll("-", "")}` }), input: {} }); configured = [parseDurableAccountBinding(discovered)];
   }
-  const broker = new ActorBroker({ bindings: configured.map((account) => ({ ...account, principalKind: "human" as const, connectorId: GOOGLE_GOG_CONNECTOR_ID })), operations: [{ connectorId: GOOGLE_GOG_CONNECTOR_ID, action }], grants, audit: new FileAuditSink(config.gatewayAuditRoot) });
+  const broker = new ActorBroker({ bindings: configured.map((account) => ({ ...account, principalKind: "human" as const })), operations: [{ connectorId: GOOGLE_GOG_CONNECTOR_ID, action }], grants, audit: new FileAuditSink(config.gatewayAuditRoot) });
   const authorized = await broker.authorize({ binding: bound.binding, connectorId: GOOGLE_GOG_CONNECTOR_ID, action, requestId: toolCallId, inputDigest: canonicalPayloadDigest(input) });
   return await worker.execute({ ...authorized, input });
 }

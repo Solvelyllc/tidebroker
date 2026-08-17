@@ -5,6 +5,7 @@
   "checks": [
     { "id": "calendar-read", "status": "passed" },
     { "id": "gmail-read", "status": "passed" },
+    { "id": "google-capability-shapes", "status": "passed" },
     { "id": "approved-write", "status": "passed" },
     { "id": "unmapped-requester-denied", "status": "passed" }
   ]

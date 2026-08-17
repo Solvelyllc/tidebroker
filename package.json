@@ -27,7 +27,7 @@
     "build": "node ./scripts/clean-dist.mjs && tsc -p tsconfig.json && node ./scripts/finalize-dist.mjs",
     "prepack": "npm run plugin:validate",
     "plugin:build": "npm run build",
-    "plugin:validate": "npm run build && node ./scripts/validate-package.mjs && npm test",
+    "plugin:validate": "npm run build && node ./scripts/validate-package.mjs && node ./scripts/gog-permission-shapes.mjs --self-test && npm test",
     "check": "npm run plugin:validate",
     "evidence:mcp": "npm run build && node ./scripts/collect-mcp-quarantine-evidence.mjs",
     "evidence:os": "node ./scripts/collect-os-isolation-evidence.mjs",

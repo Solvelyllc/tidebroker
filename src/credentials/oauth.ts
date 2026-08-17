@@ -106,9 +106,13 @@ export class OAuthCredentialCustodian {
 
     const tokens = await this.options.exchanger.exchange({ authorizationCode: input.authorizationCode, pkceVerifier: input.pkceVerifier, redirectTargetId: record.redirectTargetId });
     const granted = [...new Set(tokens.grantedScopes)];
-    if (tokens.issuer !== this.options.expectedIssuer || tokens.audience !== this.options.expectedAudience || tokens.nonce !== record.nonce || !tokens.refreshToken || !tokens.clientId || granted.length === 0 || granted.some((scope) => !record.scopes.includes(scope)) || record.scopes.some((scope) => !granted.includes(scope))) {
-      throw new OAuthCustodyError("OAUTH_RESPONSE_INVALID");
-    }
+    if (tokens.issuer !== this.options.expectedIssuer) throw new Error("OAUTH_ISSUER_MISMATCH");
+    if (tokens.audience !== this.options.expectedAudience) throw new Error("OAUTH_AUDIENCE_MISMATCH");
+    if (tokens.nonce !== record.nonce) throw new Error("OAUTH_NONCE_MISMATCH");
+    if (!tokens.refreshToken || !tokens.clientId) throw new Error("OAUTH_CREDENTIAL_MISSING");
+    if (granted.length === 0) throw new Error("OAUTH_SCOPES_EMPTY");
+    if (granted.some((scope) => !record.scopes.includes(scope))) throw new Error("OAUTH_SCOPE_OVERGRANT");
+    if (record.scopes.some((scope) => !granted.includes(scope))) throw new Error("OAUTH_SCOPE_MISSING");
     const accountId = (this.options.newAccountId ?? (() => defineAccountId(`acct_${globalThis.crypto.randomUUID().replaceAll("-", "")}`)))();
     const credentialHandle = (this.options.newCredentialHandle ?? (() => defineCredentialHandle(`cred_${globalThis.crypto.randomUUID().replaceAll("-", "")}`)))();
     const existing = await this.options.credentials.metadata(credentialHandle);

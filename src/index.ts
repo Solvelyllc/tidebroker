@@ -6,6 +6,8 @@ import { createGoogleCalendarTool } from "./plugin/google-tool.js";
 import { createGoogleCalendarWriteTools } from "./plugin/google-write-tools.js";
 import { requireGoogleWriteApproval } from "./plugin/write-approval.js";
 import { createGoogleGmailTools } from "./plugin/google-gmail-tools.js";
+import { createGoogleWorkspaceConnectTool } from "./plugin/google-onboarding-tool.js";
+import { createGoogleWorkspaceReadTools } from "./plugin/google-workspace-read-tools.js";
 
 const statusParameters = Type.Object({}, { additionalProperties: false });
 
@@ -50,6 +52,10 @@ export default definePluginEntry({
       { name: "tidebroker_status", optional: true },
     );
     if (deployment) {
+      api.registerTool((toolContext) => {
+        if (!trustedActorFromHostContext(toolContext).ok) return null;
+        return createGoogleWorkspaceConnectTool(deployment, toolContext);
+      }, { name: "google_workspace_connect", optional: true });
       api.on("before_tool_call", (event, context) => requireGoogleWriteApproval(event, context) as never, { priority: 100 });
       api.registerTool(
         (toolContext) => createGoogleCalendarTool(deployment, toolContext),
@@ -65,6 +71,12 @@ export default definePluginEntry({
         api.registerTool((toolContext) => {
           if (!trustedActorFromHostContext(toolContext).ok) return null;
           return createGoogleGmailTools(deployment, toolContext).find((tool) => tool.name === name) ?? null;
+        }, { name, optional: true });
+      }
+      for (const name of ["google_drive_files_list", "google_docs_document_metadata", "google_sheets_spreadsheet_metadata"] as const) {
+        api.registerTool((toolContext) => {
+          if (!trustedActorFromHostContext(toolContext).ok) return null;
+          return createGoogleWorkspaceReadTools(deployment, toolContext).find((tool) => tool.name === name) ?? null;
         }, { name, optional: true });
       }
     }

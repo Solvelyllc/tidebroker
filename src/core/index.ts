@@ -1,4 +1,5 @@
 export * from "./connector.js";
+export * from "./capabilities.js";
 export * from "./identity.js";
 export * from "./policy.js";
 export * from "./run-binding.js";

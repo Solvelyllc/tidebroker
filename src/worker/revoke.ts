@@ -32,7 +32,7 @@ export async function runCredentialRevocation(worker: CredentialWorkerServiceCon
   let providerRevoked = redeemed.material.kind !== "oauth2";
   if (redeemed.material.kind === "oauth2") { try { await revokeGoogleCredential(redeemed.material); providerRevoked = true; } catch {} }
   const revokedGeneration = await credentials.revoke(handle);
-  await new FileAccountBindingStore(worker.accountBindingsPath).disable(handle, revokedGeneration);
+  await new FileAccountBindingStore(worker.accountBindingsPath, { legacyConnectorId: metadata.connectorId }).disable(handle, revokedGeneration);
   await new FileAuditSink(worker.auditRoot).append(buildAuditEvent({ actor: { id: metadata.subjectId, kind: metadata.principalKind }, workspace: metadata.workspaceId, connector: metadata.connectorId, action: "credential.revoke", outcome: "succeeded", correlation: { requestId: `req_${globalThis.crypto.randomUUID().replaceAll("-", "")}` }, reasonCode: providerRevoked ? "CREDENTIAL_REVOKED" : "CREDENTIAL_REVOKED_LOCAL" }));
   return Object.freeze({ providerRevoked });
 }

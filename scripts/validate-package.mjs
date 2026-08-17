@@ -36,7 +36,14 @@ if (!manifest.contracts?.tools?.includes("tidebroker_status")) {
 if (!manifest.contracts?.tools?.includes("google_calendar_events_list")) {
   throw new Error("manifest must declare google_calendar_events_list");
 }
-for (const name of ["google_gmail_messages_search", "google_gmail_message_get", "google_gmail_message_send"]) {
+for (const name of [
+  "google_gmail_messages_search",
+  "google_gmail_message_get",
+  "google_gmail_message_send",
+  "google_drive_files_list",
+  "google_docs_document_metadata",
+  "google_sheets_spreadsheet_metadata",
+]) {
   if (!manifest.contracts?.tools?.includes(name)) throw new Error(`manifest must declare ${name}`);
 }
 if (packageJson.bin?.["tidebroker-worker"] !== "./dist/worker/entry.js") {

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "gogVersion": "v0.37.0",
+  "commands": {
+    "drive": {
+      "rootType": "array",
+      "maxItems": 100,
+      "requiredKeys": ["id", "mimeType"],
+      "allowedKeys": ["id", "mimeType"],
+      "fieldTypes": { "id": "string", "mimeType": "string" }
+    },
+    "docs": {
+      "rootType": "object",
+      "requiredKeys": ["document.documentId", "file.id", "file.mimeType"],
+      "allowedKeys": ["document.documentId", "document.revisionId", "file.id", "file.mimeType"],
+      "fieldTypes": {
+        "document.documentId": "string",
+        "document.revisionId": "string",
+        "file.id": "string",
+        "file.mimeType": "string"
+      }
+    },
+    "sheets": {
+      "rootType": "object",
+      "requiredKeys": ["spreadsheetId"],
+      "allowedKeys": ["spreadsheetId"],
+      "fieldTypes": { "spreadsheetId": "string" }
+    }
+  }
+}
