@@ -2,7 +2,12 @@
 
 # Tidebroker
 
-An OpenClaw plugin foundation for binding CLI, MCP, and HTTP connector execution to the human who initiated the current turn.
+**Approval-gated credential brokerage and actor-scoped connectors for OpenClaw.**
+
+Tidebroker is an OpenClaw plugin foundation that binds CLI, MCP, and HTTP connector
+execution to the human who initiated the current turn. It lets an agent use real
+provider accounts — calendar, email, and more — without ever giving the model
+ambient access to credentials.
 
 The central invariant is simple:
 
@@ -12,38 +17,72 @@ trusted requester + selected workspace + connector -> one exact account binding
 
 There is no global, last-used, other-user, or ambient credential fallback.
 
-## Status
+## Why Tidebroker
 
-Version 1.1 adds selectable direct-Google and external-`gog` execution while keeping the installed plugin
-fail closed until a deployment supplies its trusted stores, worker, and host workspace
-adapter. It currently provides:
+Most agent integrations quietly widen access: a shared token, a "default" account,
+a credential sitting in an environment variable. Tidebroker is built the other way
+around — fail closed, and only ever act as the exact person who asked.
 
-- host-context-only identities mapped exactly to random deployment-issued subjects;
-- immutable trusted selected-workspace bindings with repeated membership checks;
-- exact, fail-closed workspace and account policy resolution;
-- human and explicit service-principal namespaces;
-- a requester-scoped MCP endpoint/header validation adapter for connector implementations;
-- an isolated, shell-free CLI execution adapter;
-- authenticated short-lived, action- and generation-bound worker grants with replay protection;
-- a mode-`0600` Unix-socket worker protocol with bounded frames, timeouts, and concurrency;
-- optional dedicated-group `0660` socket access for separate Gateway/worker OS identities;
-- a runnable `tidebroker-worker` service with secure key files, health checks,
-  graceful shutdown, and conservative stale-socket recovery;
-- durable private-file adapters with atomic writes and restart-safe OAuth/replay/outcome state;
-- encrypted OAuth custody, single-use OAuth state, PKCE, signed OIDC validation, and revocation;
-- a one-shot loopback-only Google connection flow whose authorization response uses POST;
-- worker-private account discovery authenticated by the same short-lived grants as execution;
-- fixed Google Calendar and Gmail operations executed either directly over bounded Google APIs or by an administrator-provisioned `gog` binary;
-- bounded Gmail search/read that marks provider content untrusted, plus exact-approval plain-text sending;
-- closed-schema audit events, sink readiness, and invalidation hooks;
-- threat-model and security-architecture documentation;
-- an optional `tidebroker_status` diagnostic tool.
+- **Exact identity, every time** — host-context identities map to
+  deployment-issued opaque subjects, with immutable trusted workspace bindings and
+  repeated membership checks.
+- **Encrypted credential custody** — OAuth tokens live in an isolated,
+  out-of-process credential worker under its own OS/container boundary. Codes and
+  tokens never reach chat, argv, logs, audit events, URLs, or tool results.
+- **Short-lived, single-use grants** — workers authenticate with action- and
+  generation-bound grants with replay protection; nothing long-lived crosses the
+  plugin boundary.
+- **Exact approvals for mutations** — writes (like sending email) require explicit
+  human approval of the exact action.
+- **Audit and revocation** — closed-schema audit events, sink readiness checks,
+  and token revocation are first-class, not bolted on.
+- **Shell-free execution** — exact absolute binaries, no `PATH` lookup, no
+  inherited environment, bounded output, and deterministic errors.
 
-The credential worker must be deployed out of process under a separate OS/container
-boundary. The plugin never activates Google access without deployment-owned configuration,
-an exact trusted actor/workspace binding, and a connected worker-private account.
+## Current connectors
 
-## Target architecture
+Tidebroker's security architecture is provider-agnostic. The connectors implemented
+today are Google-focused:
+
+- **Gmail** — bounded search/read (provider content marked untrusted) and
+  exact-approval plain-text sending.
+- **Google Calendar** — fixed read operations with strict projections.
+
+Google access runs through one of two administrator-selected backends — there is no
+automatic fallback, and the choice is never model-visible:
+
+- **Direct Google APIs** — fixed `https://www.googleapis.com` paths, header-only
+  access tokens, redirects disabled, bounded JSON. Gmail HTML, attachments, raw
+  MIME, and arbitrary headers are never returned.
+- **External `gog` binary** (Linux only) — an externally provisioned,
+  owner/mode/SHA-256-verified binary with a private state root, closed child
+  environment, and exact command allowlists. Tidebroker does not bundle `gog`;
+  the included `scripts/gog-safety-profile.yaml` is a reproducible recipe for
+  administrators who choose this backend.
+
+OAuth connection is a one-shot, worker-owned loopback flow using PKCE, single-use
+state, and signed OIDC validation. The plugin never activates Google access without
+deployment-owned configuration, an exact trusted actor/workspace binding, and a
+connected worker-private account.
+
+## Roadmap
+
+The reusable core — actor/workspace/account isolation, encrypted credential
+custody, OAuth state and token lifecycle, short-lived single-use grants, exact
+approvals for mutations, audit and revocation, and isolated worker execution — is
+deliberately provider-agnostic.
+
+Adding **Microsoft 365, GitHub, Slack, Stripe**, or other OAuth/API providers does
+not require rebuilding that security layer. Each new provider needs:
+
+1. a provider adapter;
+2. provider-specific scopes and policies;
+3. sanitized output projections;
+4. operation-specific tests.
+
+Contributions and provider requests are welcome — see the issues page.
+
+## Architecture
 
 ```text
 OpenClaw trusted requester context
@@ -65,75 +104,30 @@ requester-scoped MCP   mode-0600 Unix socket
           + durable replay/outcomes/audit
 ```
 
+The credential worker is deployed out of process as a runnable `tidebroker-worker`
+service, with secure key files, health checks, graceful shutdown, and a mode-`0600`
+Unix-socket protocol with bounded frames, timeouts, and concurrency.
+
 Public SDK modules are available from `@solvely/tidebroker/sdk`:
 
-- `core`: identity, opaque subject mapping, trusted run binding, policy, and connector contracts;
-- `mcp`: requester-scoped MCP resolver adapter;
-- `cli`: safe CLI binding, allowlist, and execution primitives;
-- `credentials`: encrypted records, OAuth custody, and revocation;
-- `durable`: private atomic credential, metadata, subject, membership, OAuth,
-  replay, mutation-outcome, and audit adapters;
-- `worker`: authenticated grants, replay prevention, and isolated dispatch;
-- `connectors`: fixed Google Calendar and Gmail operations with worker-owned backend selection;
-- `audit`: closed-schema events and sink contracts. Callers must
-  pass registry-issued opaque identifiers, never secrets or provider data.
+- `core` — identity, opaque subject mapping, trusted run binding, policy, connector contracts
+- `mcp` — requester-scoped MCP resolver adapter
+- `cli` — safe CLI binding, allowlist, and execution primitives
+- `credentials` — encrypted records, OAuth custody, and revocation
+- `durable` — private atomic adapters for credentials, metadata, OAuth, replay, outcomes, audit
+- `worker` — authenticated grants, replay prevention, isolated dispatch
+- `connectors` — fixed Google Calendar and Gmail operations with worker-owned backend selection
+- `audit` — closed-schema events and sink contracts
 
-## Requester-scoped MCP
+## Security model
 
-OpenClaw must statically know the MCP server name and tool schema. Connector implementations can use `createRequesterScopedMcpResolver` to bind that server's transport to a trusted requester for each run.
+OpenClaw plugins execute trusted code inside the Gateway. Tidebroker prevents
+accidental or model-directed cross-account selection; it does not make a shared
+Gateway safe against a malicious host administrator or modified plugin runtime.
+Strong credential isolation requires the out-of-process worker with its own
+OS/container boundary.
 
-The foundation deliberately does **not** register a raw identity-header loopback route. A production connector must first resolve the full trusted requester tuple to a deployment-owned opaque subject, enforce exact workspace/account policy, and mint an authenticated short-lived capability for its credential worker. Plain actor headers are forgeable by other local processes and are not an acceptable authorization boundary.
-
-## CLI security boundary
-
-The CLI adapter:
-
-- executes exact absolute binaries with `shell: false`;
-- performs no `PATH` lookup;
-- inherits no process environment;
-- provides no stdin;
-- rejects credential-bearing flags;
-- validates actor config directories using real paths and root containment;
-- binds each config directory to the exact authorized actor/workspace/account context;
-- supports operation and flag allowlists;
-- enforces timeout, cancellation, and combined output limits;
-- terminates the full process group on POSIX (Windows needs a Job Object or container
-  for an equivalent descendant boundary);
-- returns deterministic errors without argv, environment, or underlying causes.
-
-Connector authors must supply a provider-aware output sanitizer. Credentials belong in the actor-specific worker's protected store, never in argv or caller-provided environment values.
-
-## Google execution backends
-
-The worker administrator explicitly selects exactly one Google Workspace backend.
-There is no automatic fallback and the backend is never model-visible.
-
-- `direct` uses fixed `https://www.googleapis.com` paths, header-only access tokens,
-  redirects disabled, bounded JSON, and strict Calendar/Gmail projections. Gmail
-  HTML, attachments, raw MIME, and arbitrary headers are never returned.
-- `gog` (Linux only) invokes an externally provisioned, owner/mode/SHA-256-verified binary with
-  a private state root, closed child environment, exact command allowlists,
-  minimal projections, strict closed JSON schemas, and Gmail bodies over stdin.
-
-Tidebroker does **not** bundle the `gog` binary or its source. The included
-`scripts/gog-safety-profile.yaml` is only a reproducible recipe for administrators
-who choose that backend. Both modes retain identical actor/account isolation,
-short-lived grants, write approvals, audit, replay protection, and revocation.
-In direct mode, the Calendar `today` filter uses the current UTC calendar day;
-deployments needing a local-day policy should translate that intent before invoking
-the fixed operation rather than accepting a model-supplied time zone.
-
-OAuth connection is a one-shot worker-owned loopback UI. The Google response uses
-`form_post`, so authorization codes are received in a bounded POST body; code and
-token responses remain inside the credential worker and are never returned to chat,
-argv, logs, audit events, URLs, or tool results. See the production activation guide.
-
-`ActorScopedGoogleCalendarRuntime` wires trusted host context to the broker and
-Unix worker client. Its model-visible input accepts only `today` and
-`maxResults`; actor, workspace, account, endpoint, and credential selectors are
-rejected.
-
-## Security documentation
+Full details:
 
 - [Security architecture](docs/SECURITY-ARCHITECTURE.md)
 - [Threat model](docs/THREAT-MODEL.md)
@@ -141,25 +135,15 @@ rejected.
 - [Worker deployment protocol](docs/WORKER-PROTOCOL.md)
 - [Production activation](docs/DEPLOYMENT.md)
 
-OpenClaw plugins execute trusted code inside the Gateway. This project prevents accidental or model-directed cross-account selection; it does not make a shared Gateway safe against a malicious host administrator or modified plugin runtime. Strong credential isolation requires an out-of-process worker with its own OS/container boundary.
-
 ## Development
 
-Requirements:
-
-- Node.js supported by the target OpenClaw release;
-- OpenClaw `>=2026.8.1`;
-- npm.
-
-When developing against a host build newer than the public npm package, link that exact host package without saving it:
+Requirements: Node.js supported by the target OpenClaw release, OpenClaw
+`>=2026.8.1`, and npm.
 
 ```bash
 npm install
-npm link --no-save openclaw
-npm run check
+npm run check      # build + package validation + tests
 ```
-
-Normal verification:
 
 ```bash
 npm test
@@ -168,15 +152,22 @@ npm run plugin:validate
 npm pack --dry-run
 ```
 
-`npm pack` runs the full build, validation, and test suite through `prepack`, so a
-clean checkout cannot produce a package missing its runtime files.
+When developing against a host build newer than the public npm package, link that
+exact host package without saving it: `npm link --no-save openclaw`.
 
-Before a public ClawHub release, push the exact release commit
-to a public source repository, test the packed artifact through OpenClaw's
-managed `npm-pack:` install path, and produce owner-only release evidence for OS
-isolation, a real-provider smoke test, and MCP schema quarantine. `npm publish`
-is blocked unless `TIDEBROKER_RELEASE_EVIDENCE_PATH` names an owner-only evidence
-file bound to the exact `HEAD`; validate it with `npm run release:check`. Then run:
+`npm pack` runs the full build, validation, and test suite through `prepack`, so a
+clean checkout cannot produce a package missing its runtime files. The release
+artifact is controlled by `package.json#files`; workspace files, runtime state,
+credentials, tests, and TypeScript sources are excluded. No publication or live
+credential connection is performed by this repository's test suite.
+
+### Releasing
+
+Before a public release, push the exact release commit to a public source
+repository and test the packed artifact through OpenClaw's managed `npm-pack:`
+install path. `npm publish` is blocked unless `TIDEBROKER_RELEASE_EVIDENCE_PATH`
+names an owner-only evidence file bound to the exact `HEAD`; validate with
+`npm run release:check`, then dry-run the ClawHub publish:
 
 ```bash
 clawhub package validate . --openclaw /path/to/openclaw
@@ -188,8 +179,6 @@ clawhub package publish . \
   --dry-run
 ```
 
-The `@solvely` npm scope must match the selected ClawHub owner. The release
-artifact is controlled by `package.json#files`; local OpenClaw workspace files,
-runtime state, credentials, tests, and TypeScript sources are excluded. No
-publication or live credential connection is performed by this repository's
-test suite.
+## License
+
+[Apache-2.0](LICENSE)
