@@ -16,7 +16,7 @@ permissions:
 jobs:
   package:
     if: ${{ vars.TIDEBROKER_RELEASE_AUTOMATION_ENABLED == 'true' }}
-    runs-on: [self-hosted, tidebroker-release]
+    runs-on: ubuntu-latest
     environment: production-release
     timeout-minutes: 20
     steps:
@@ -41,10 +41,29 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm audit --audit-level=low
-      - name: Verify deployment evidence
-        run: npm run release:check
+      - name: Materialize deployment evidence
+        shell: bash
         env:
-          TIDEBROKER_RELEASE_EVIDENCE_PATH: ${{ vars.TIDEBROKER_RELEASE_EVIDENCE_PATH }}
+          OS_EVIDENCE_B64: ${{ secrets.TIDEBROKER_OS_EVIDENCE_B64 }}
+          PROVIDER_EVIDENCE_B64: ${{ secrets.TIDEBROKER_PROVIDER_EVIDENCE_B64 }}
+          MCP_EVIDENCE_B64: ${{ secrets.TIDEBROKER_MCP_EVIDENCE_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$OS_EVIDENCE_B64"
+          test -n "$PROVIDER_EVIDENCE_B64"
+          test -n "$MCP_EVIDENCE_B64"
+          evidence_dir="$RUNNER_TEMP/tidebroker-evidence"
+          install -d -m 0700 "$evidence_dir"
+          umask 077
+          printf '%s' "$OS_EVIDENCE_B64" | base64 --decode > "$evidence_dir/os.json"
+          printf '%s' "$PROVIDER_EVIDENCE_B64" | base64 --decode > "$evidence_dir/provider.json"
+          printf '%s' "$MCP_EVIDENCE_B64" | base64 --decode > "$evidence_dir/mcp.json"
+          TIDEBROKER_OS_EVIDENCE_PATH="$evidence_dir/os.json" \
+          TIDEBROKER_REAL_PROVIDER_EVIDENCE_PATH="$evidence_dir/provider.json" \
+          TIDEBROKER_MCP_EVIDENCE_PATH="$evidence_dir/mcp.json" \
+          TIDEBROKER_RELEASE_EVIDENCE_PATH="$evidence_dir/summary.json" \
+            npm run evidence:summary
+          TIDEBROKER_RELEASE_EVIDENCE_PATH="$evidence_dir/summary.json" npm run release:check
       - name: Build distributable, SBOM, and checksums
         run: node ./scripts/build-release-artifacts.mjs "$RUNNER_TEMP/tidebroker-release"
       - name: Attest build provenance

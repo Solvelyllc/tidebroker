@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { recordRealProviderEvidence } from "../scripts/record-real-provider-evidence.mjs";
 import { buildReleaseEvidenceSummary } from "../scripts/build-release-evidence-summary.mjs";
+import { providerEgressRestricted } from "../scripts/collect-os-isolation-evidence.mjs";
 
 const roots: string[] = [];
 const sourceCommit = "a".repeat(40);
@@ -12,6 +13,15 @@ async function root() { const value = await mkdtemp(join(tmpdir(), "tidebroker-c
 const providerChecks = ["calendar-read", "gmail-read", "approved-write", "unmapped-requester-denied"];
 
 describe("release evidence collectors", () => {
+  it("accepts systemd's normalized deny-all routes only with an explicit allowlist", () => {
+    expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], ["127.0.0.0/8", "::1/128"])).toBe(true);
+    expect(providerEgressRestricted(["any"], ["127.0.0.0/8", "::1/128"])).toBe(true);
+    expect(providerEgressRestricted(["0.0.0.0/0"], ["127.0.0.0/8"])).toBe(false);
+    expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], [])).toBe(false);
+    expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], ["0.0.0.0/0"])).toBe(false);
+    expect(providerEgressRestricted(["0.0.0.0/0", "::/0"], ["127.0.0.0/8", "::1/128", "10.0.0.0/8"])).toBe(false);
+  });
+
   it("records only a complete, recent, owner-only provider result", async () => {
     const directory = await root(); const input = join(directory, "results.json"); const output = join(directory, "provider.json");
     await writeFile(input, `${JSON.stringify({ version: 1, sourceCommit, verifiedAt: new Date().toISOString(), checks: providerChecks.map((id) => ({ id, status: "passed" })) })}\n`, { mode: 0o600 });

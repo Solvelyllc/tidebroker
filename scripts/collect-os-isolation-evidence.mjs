@@ -43,6 +43,13 @@ function exactConfig(value) {
   return record;
 }
 
+export function providerEgressRestricted(deny, allow) {
+  if (!Array.isArray(deny) || !Array.isArray(allow)) return false;
+  const deniesAll = deny.includes("any") || deny.includes("0.0.0.0/0") && deny.includes("::/0");
+  const allowed = new Set(allow);
+  return deniesAll && allowed.size === 2 && allowed.has("127.0.0.0/8") && allowed.has("::1/128");
+}
+
 export async function collectOsIsolationEvidence(options) {
   const { outputPath, workerConfigPath, gatewayUser, service = "tidebroker-worker.service", sourceCommit } = options ?? {};
   if (![outputPath, workerConfigPath].every((value) => typeof value === "string" && isAbsolute(value)) || typeof gatewayUser !== "string" || !gatewayUser || !/^[a-f0-9]{40,64}$/u.test(sourceCommit)) fail();
@@ -68,7 +75,7 @@ export async function collectOsIsolationEvidence(options) {
   for (const path of secretPaths) await privateFile(path, configInfo.uid);
   const deny = state.IPAddressDeny?.split(/\s+/u).filter(Boolean) ?? [];
   const allow = state.IPAddressAllow?.split(/\s+/u).filter(Boolean) ?? [];
-  if (!deny.includes("any") || allow.length === 0) fail();
+  if (!providerEgressRestricted(deny, allow)) fail();
   const verifiedAt = new Date().toISOString();
   const evidence = {
     version: 1,
