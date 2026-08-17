@@ -5,16 +5,24 @@ import { FileAuditSink } from "../durable/audit.js";
 import { FileCredentialRecordBackend } from "../durable/credentials.js";
 import { FileGrantReplayStore } from "../durable/replay.js";
 import { FileMutationOutcomeStore } from "../durable/outcomes.js";
+import { FileAccountBindingStore } from "../durable/accounts.js";
 import { EncryptedCredentialStore } from "../credentials/store.js";
 import { createGoogleGogCalendarListOperation } from "../connectors/google-gog.js";
+import { validateGogExecutionOptions } from "../connectors/gog-executor.js";
+import { loadGogAuthCatalog } from "../connectors/gog-auth-catalog.js";
 import { createGoogleCalendarWriteOperations } from "../connectors/google-calendar-write.js";
 import { createGoogleGmailOperations } from "../connectors/google-gmail.js";
+import { createGoogleWorkspaceReadOperations } from "../connectors/google-workspace-read.js";
 import { CredentialGrantVerifier } from "./grant.js";
 import { IsolatedCredentialWorker } from "./worker.js";
 import { probeUnixCredentialWorkerSocket, UnixCredentialWorkerServer } from "./transport.js";
 import { readSecureKeyFile, readSecureTextFile, SecureFileCredentialEncryptionKeys } from "./secure-key-files.js";
 import { createAccountBindingResolveOperation } from "./account-resolver.js";
 import type { GoogleWorkspaceExecutionOptions } from "../connectors/google-api-executor.js";
+import { createGoogleConnectionBeginOperation } from "./google-connection-operation.js";
+import { GOOGLE_CONNECTOR_BINDING_ACTIONS, resolveGoogleConnectorCapabilitySelection } from "../connectors/google-capabilities.js";
+import { GOOGLE_GOG_CONNECTOR_ID } from "../connectors/google-gog.js";
+import { GoogleConnectionSessionManager } from "./google-provisioning.js";
 
 export interface CredentialWorkerServiceConfig {
   readonly version: 1;
@@ -31,7 +39,7 @@ export interface CredentialWorkerServiceConfig {
   readonly encryption: { readonly activeKeyId: string; readonly keys: readonly { readonly id: string; readonly keyFile: string }[] };
   readonly googleExecution:
     | { readonly backend: "direct"; readonly timeoutMs?: number; readonly maxResponseBytes?: number }
-    | { readonly backend: "gog"; readonly executablePath: string; readonly executableSha256: string; readonly configRoot: string; readonly timeoutMs?: number; readonly maxOutputBytes?: number };
+    | { readonly backend: "gog"; readonly executablePath: string; readonly executableSha256: string; readonly configRoot: string; readonly httpsProxy?: string; readonly timeoutMs?: number; readonly maxOutputBytes?: number };
   readonly oauthStateRoot?: string;
   readonly googleOAuth?: { readonly clientIdFile: string; readonly clientSecretFile?: string; readonly redirectUri: string };
   readonly accountBindingsPath?: string;
@@ -59,7 +67,8 @@ export function validateCredentialWorkerServiceConfig(value: unknown): Credentia
   if (value.googleExecution.backend === "direct") {
     if (!exact(value.googleExecution, ["backend", "timeoutMs", "maxResponseBytes"]) || !boundedInteger(value.googleExecution.timeoutMs, 1_000, 120_000) || !boundedInteger(value.googleExecution.maxResponseBytes, 1_024, 4 * 1024 * 1024)) throw new Error("WORKER_CONFIG_INVALID");
   } else if (value.googleExecution.backend === "gog") {
-    if (!exact(value.googleExecution, ["backend", "executablePath", "executableSha256", "configRoot", "timeoutMs", "maxOutputBytes"]) || typeof value.googleExecution.executablePath !== "string" || !isAbsolute(value.googleExecution.executablePath) || value.googleExecution.executablePath.includes("\0") || typeof value.googleExecution.executableSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.googleExecution.executableSha256) || typeof value.googleExecution.configRoot !== "string" || !isAbsolute(value.googleExecution.configRoot) || value.googleExecution.configRoot.includes("\0") || !boundedInteger(value.googleExecution.timeoutMs, 1_000, 120_000) || !boundedInteger(value.googleExecution.maxOutputBytes, 1_024, 4 * 1024 * 1024)) throw new Error("WORKER_CONFIG_INVALID");
+    if (!exact(value.googleExecution, ["backend", "executablePath", "executableSha256", "configRoot", "httpsProxy", "timeoutMs", "maxOutputBytes"]) || typeof value.googleExecution.executablePath !== "string" || !isAbsolute(value.googleExecution.executablePath) || value.googleExecution.executablePath.includes("\0") || typeof value.googleExecution.executableSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.googleExecution.executableSha256) || typeof value.googleExecution.configRoot !== "string" || !isAbsolute(value.googleExecution.configRoot) || value.googleExecution.configRoot.includes("\0") || value.googleExecution.httpsProxy !== undefined && typeof value.googleExecution.httpsProxy !== "string" || !boundedInteger(value.googleExecution.timeoutMs, 1_000, 120_000) || !boundedInteger(value.googleExecution.maxOutputBytes, 1_024, 4 * 1024 * 1024)) throw new Error("WORKER_CONFIG_INVALID");
+    try { validateGogExecutionOptions(value.googleExecution as unknown as import("../connectors/gog-executor.js").GogExecutionOptions); } catch { throw new Error("WORKER_CONFIG_INVALID"); }
   } else throw new Error("WORKER_CONFIG_INVALID");
   if (value.googleOAuth !== undefined && (!plain(value.googleOAuth) || !exact(value.googleOAuth, ["clientIdFile", "clientSecretFile", "redirectUri"]) || typeof value.googleOAuth.clientIdFile !== "string" || !isAbsolute(value.googleOAuth.clientIdFile) || value.googleOAuth.clientSecretFile !== undefined && (typeof value.googleOAuth.clientSecretFile !== "string" || !isAbsolute(value.googleOAuth.clientSecretFile)) || typeof value.googleOAuth.redirectUri !== "string" || !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/oauth\/google\/callback$/.test(value.googleOAuth.redirectUri))) throw new Error("WORKER_CONFIG_INVALID");
   if (value.googleOAuth !== undefined && (value.oauthStateRoot === undefined || value.accountBindingsPath === undefined) || value.googleOAuth === undefined && (value.oauthStateRoot !== undefined || value.accountBindingsPath !== undefined)) throw new Error("WORKER_CONFIG_INVALID");
@@ -94,8 +103,16 @@ export async function createCredentialWorkerService(config: CredentialWorkerServ
   const credentials = new EncryptedCredentialStore(new FileCredentialRecordBackend(config.credentialRoot, config.metadataRoot), encryptionKeys);
   const execution: GoogleWorkspaceExecutionOptions = config.googleExecution.backend === "direct"
     ? { backend: "direct", direct: { timeoutMs: config.googleExecution.timeoutMs, maxResponseBytes: config.googleExecution.maxResponseBytes } }
-    : { backend: "gog", gog: { executablePath: config.googleExecution.executablePath, executableSha256: config.googleExecution.executableSha256, configRoot: config.googleExecution.configRoot, timeoutMs: config.googleExecution.timeoutMs, maxOutputBytes: config.googleExecution.maxOutputBytes } };
-  const worker = new IsolatedCredentialWorker({ verifier: new CredentialGrantVerifier({ secret: grantKey, issuer: config.grant.issuer, audience: config.grant.audience }), credentials, replay: new FileGrantReplayStore(config.replayRoot), audit: new FileAuditSink(config.auditRoot), outcomes: new FileMutationOutcomeStore(config.outcomeRoot) }, [createGoogleGogCalendarListOperation(execution), ...createGoogleCalendarWriteOperations(execution), ...createGoogleGmailOperations(execution), ...(config.accountBindingsPath ? [createAccountBindingResolveOperation(config.accountBindingsPath)] : [])]);
+    : { backend: "gog", gog: { executablePath: config.googleExecution.executablePath, executableSha256: config.googleExecution.executableSha256, configRoot: config.googleExecution.configRoot, httpsProxy: config.googleExecution.httpsProxy, timeoutMs: config.googleExecution.timeoutMs, maxOutputBytes: config.googleExecution.maxOutputBytes } };
+  const onboarding = config.googleOAuth && config.googleExecution.backend === "gog" ? await loadGogAuthCatalog({ executablePath: config.googleExecution.executablePath, executableSha256: config.googleExecution.executableSha256, configRoot: config.googleExecution.configRoot, timeoutMs: config.googleExecution.timeoutMs, maxOutputBytes: config.googleExecution.maxOutputBytes }) : undefined;
+  const googleBindingStore = { legacyConnectorId: GOOGLE_GOG_CONNECTOR_ID, allowedActionsByConnector: new Map([[GOOGLE_GOG_CONNECTOR_ID, new Set(GOOGLE_CONNECTOR_BINDING_ACTIONS)]]) };
+  if (config.accountBindingsPath) await new FileAccountBindingStore(config.accountBindingsPath, googleBindingStore).migrateLegacy();
+  const operations = [createGoogleGogCalendarListOperation(execution), ...createGoogleCalendarWriteOperations(execution), ...createGoogleGmailOperations(execution), ...createGoogleWorkspaceReadOperations(execution), ...(config.accountBindingsPath ? [createAccountBindingResolveOperation(config.accountBindingsPath, GOOGLE_GOG_CONNECTOR_ID, googleBindingStore)] : [])];
+  if (onboarding) {
+    const manager = new GoogleConnectionSessionManager(config, onboarding);
+    operations.push(createGoogleConnectionBeginOperation({ manager, resolveSelection: (services) => resolveGoogleConnectorCapabilitySelection(services, onboarding) }));
+  }
+  const worker = new IsolatedCredentialWorker({ verifier: new CredentialGrantVerifier({ secret: grantKey, issuer: config.grant.issuer, audience: config.grant.audience }), credentials, replay: new FileGrantReplayStore(config.replayRoot), audit: new FileAuditSink(config.auditRoot), outcomes: new FileMutationOutcomeStore(config.outcomeRoot) }, operations);
   return new UnixCredentialWorkerServer({ socketPath: config.socketPath, worker, recoverStaleSocket: config.recoverStaleSocket, socketAccess: config.socketAccess, socketGroupId: config.socketGroupId, ...config.limits });
 }
 

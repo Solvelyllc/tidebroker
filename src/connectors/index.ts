@@ -5,3 +5,4 @@ export * from "./google-runtime.js";
 export * from "./google-calendar-write.js";
 export * from "./google-cloud-admin.js";
 export * from "./google-gmail.js";
+export * from "./google-workspace-read.js";

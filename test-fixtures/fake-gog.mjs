@@ -16,6 +16,9 @@ function emit() {
     "gmail.messages.search": [{ id: "msg_123", threadId: "thread_123", subject: "Review", labels: ["INBOX"] }],
     "gmail.get": { id: "msg_456", threadId: "thread_456", headers: { subject: "Review" }, body: "Sanitized body" },
     "gmail.send": { messageId: "sent_123", threadId: "thread_123" },
+    "drive.ls": [{ id: "file_123456", mimeType: "application/vnd.google-apps.document" }],
+    "docs.info": { "file.id": "doc_123456", "file.mimeType": "application/vnd.google-apps.document", "document.documentId": "doc_123456" },
+    "sheets.metadata": { spreadsheetId: "sheet_123456" },
   };
   writeFileSync(join(process.env.GOG_HOME, "fake-gog-invocation.json"), JSON.stringify({ argv, envKeys: Object.keys(process.env).sort(), hasToken: Boolean(process.env.GOG_ACCESS_TOKEN), bodyLength: body.length, bodyDigest: createHash("sha256").update(body).digest("hex") }), { mode: 0o600 });
   process.stdout.write(JSON.stringify(outputs[command]));

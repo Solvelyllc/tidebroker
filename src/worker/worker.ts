@@ -119,12 +119,13 @@ export class IsolatedCredentialWorker {
     const markProviderCallStarted = () => { providerCallStarted = true; };
     try {
       result = await operation.execute({ claims, ...(material === undefined ? {} : { material }), assertCredentialActive, markProviderCallStarted }, request.input);
-    } catch {
+    } catch (error) {
+      const operationReason = error instanceof Error && /^(?:GOG|GOOGLE)_[A-Z0-9_]{1,80}$/.test(error.message) ? error.message : "OPERATION_FAILED";
       if (operation.mutating) {
         try { await this.options.outcomes!.complete(claims.requestId, providerCallStarted ? "unknown" : "failed"); await this.#audit(claims, "failed", providerCallStarted ? "OPERATION_OUTCOME_UNKNOWN" : "OPERATION_FAILED"); }
         catch { throw new CredentialWorkerError("WORKER_OUTCOME_UNKNOWN", false); }
         if (providerCallStarted) throw new CredentialWorkerError("WORKER_OUTCOME_UNKNOWN", false);
-      } else await this.#audit(claims, "failed", "OPERATION_FAILED");
+      } else await this.#audit(claims, "failed", operationReason);
       throw new CredentialWorkerError("WORKER_OPERATION_FAILED");
     }
     if (operation.mutating) {

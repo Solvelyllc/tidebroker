@@ -1,8 +1,14 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { GOOGLE_JWKS_ENDPOINT, GOOGLE_TOKEN_ENDPOINT, GoogleOAuthTokenExchanger, googleAccessToken } from "./google-oauth.js";
+import { GOOGLE_JWKS_ENDPOINT, GOOGLE_TOKEN_ENDPOINT, GoogleOAuthTokenExchanger, canonicalGoogleOAuthScope, googleAccessToken } from "./google-oauth.js";
 
 describe("Google OAuth exchanger", () => {
+  it("canonicalizes Google OIDC identity scope aliases", () => {
+    expect(canonicalGoogleOAuthScope("profile")).toBe("https://www.googleapis.com/auth/userinfo.profile");
+    expect(canonicalGoogleOAuthScope("email")).toBe("https://www.googleapis.com/auth/userinfo.email");
+    expect(canonicalGoogleOAuthScope("openid")).toBe("openid");
+  });
+
   it("validates the signed OIDC binding and keeps the code out of the token URL", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const header = Buffer.from(JSON.stringify({ alg: "RS256", kid: "key_1" })).toString("base64url");

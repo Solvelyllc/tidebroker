@@ -10,7 +10,7 @@ const roots: string[] = [];
 const sourceCommit = "a".repeat(40);
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function root() { const value = await mkdtemp(join(tmpdir(), "tidebroker-collector-")); roots.push(value); return value; }
-const providerChecks = ["calendar-read", "gmail-read", "approved-write", "unmapped-requester-denied"];
+const providerChecks = ["calendar-read", "gmail-read", "google-executable-capability-shapes", "approved-write", "unmapped-requester-denied"];
 
 describe("release evidence collectors", () => {
   it("accepts systemd's normalized deny-all routes only with an explicit allowlist", () => {

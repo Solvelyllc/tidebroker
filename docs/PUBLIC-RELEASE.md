@@ -50,10 +50,25 @@ Using a dedicated test account and the normal OpenClaw approval UI, exercise:
 
 - one bounded Calendar read;
 - one bounded Gmail read;
+- the complete executable Google capability smoke matrix, with every command in
+  the production `gog-safety-profile.yaml` matching the strict parser shipped by
+  the exact deployed Tidebroker commit;
 - one reversible approved write, followed by cleanup;
 - one unmapped requester, which must receive no connector capability.
 
-Record only the four statuses in an owner-only copy of
+Authorization-only OAuth services are not execution claims and receive zero agent
+actions. They are covered by catalog/scope tests, not provider response-shape
+evidence. The executable-capability status must remain failed while any production
+command is unavailable, resource-dependent coverage is missing, or projected JSON
+violates its strict parser. Run the content-free executable smoke as the isolated
+worker identity before recording evidence:
+
+```bash
+TIDEBROKER_WORKER_CONFIG_PATH=/etc/tidebroker/worker.json \
+npm run smoke:google-executable
+```
+
+Record only the five statuses in an owner-only copy of
 `docs/release-evidence/real-provider-results.example.json`. Never record provider
 content, account names, email addresses, credential handles, or tokens.
 

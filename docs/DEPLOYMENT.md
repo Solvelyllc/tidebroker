@@ -80,6 +80,7 @@ open file descriptor rather than re-opening a mutable filesystem path.
     "executablePath": "/usr/local/lib/tidebroker/gog-safe",
     "executableSha256": "<lowercase SHA-256 of the reviewed gog-safe binary>",
     "configRoot": "/var/lib/tidebroker-worker/gog",
+    "httpsProxy": "http://127.0.0.1:3128",
     "timeoutMs": 30000,
     "maxOutputBytes": 1048576
   }
@@ -89,7 +90,32 @@ open file descriptor rather than re-opening a mutable filesystem path.
 Tidebroker bundles no `gog` executable or source. Administrators choosing this mode
 must provision an owner-controlled, non-group/world-writable executable, its exact
 SHA-256, and a private config root. The included safety-profile YAML is a build
-recipe, not a vendored CLI. Legacy profile-backed credentials are rejected. Invalid or
+recipe, not a vendored CLI. The command and JSON adapter contract is tested against
+`openclaw/gogcli` v0.37.0; treat any `gog` upgrade as a compatibility-gated runtime
+change and rebuild the safety-profile binary from the reviewed tag. The pinned
+binary must permit `auth services`; Tidebroker consumes its closed JSON catalog at
+worker startup and fails closed on unknown services or schema drift. `httpsProxy` is
+optional and, when present, accepts only a credential-free numeric loopback HTTP URL;
+Tidebroker passes it to the child as `HTTPS_PROXY` without inheriting the ambient
+service environment.
+
+OAuth consent grants scopes but does not enable the corresponding APIs in the
+Google Cloud project that owns the OAuth client. Before treating a selected service
+as operational, enable its exact Google API, admit only that API's hostname through
+the worker egress allowlist, and run a read-only provider smoke test. Keep this
+deployment readiness separate from Tidebroker capability availability: an
+authorization-only capability may be connected while its API is disabled or while
+no reviewed execution adapter exists.
+
+Live permission smoke tests are not schema approval. A gog command passes release
+validation only when its exact projected JSON matches the connector-owned shape
+manifest for the pinned gog version. A valid JSON response with no reviewed manifest
+entry is `shape_unreviewed`; missing or extra fields, wrong nesting or types, and
+bounded-size violations are shape failures. Do not convert an authorization-only
+capability to executable until that contract and its negative fixtures are present.
+
+Legacy
+profile-backed credentials are rejected. Invalid or
 ambiguous backend configurations fail startup; Tidebroker never falls back between modes.
 
 The shared socket directory is pre-created by the administrator, owned by the
@@ -159,9 +185,16 @@ opaque deployment identifiers and trusted `agentId` workspace selection:
 With `workerAccountDiscovery`, account metadata stays inside the worker boundary.
 Each tool call first sends an authenticated, single-use discovery grant bound to
 the trusted subject and selected workspace. Static `accounts` remain supported for
-deployments that deliberately manage the non-secret projection themselves.
+deployments that deliberately manage the non-secret projection themselves. Every
+static account must include its `connectorId`; bindings are unique per
+`subjectId + workspaceId + connectorId`, so one actor can connect multiple providers.
 
-## Connect Google Calendar
+Binding files written by current releases use format v2 and include `connectorId`.
+At worker startup, a provider module may migrate an older v1 file only by supplying
+its deployment-owned legacy connector identity. Tidebroker core never guesses which
+provider an old record belongs to.
+
+## Connect Google Workspace
 
 Create an owner-only connection request containing opaque deployment identifiers
 and the path to the existing trusted membership file:
@@ -180,10 +213,19 @@ the worker boundary as an owner-only file; browser or model input must never cre
 or modify it. Run the worker's one-shot connection mode with the worker configuration and
 connection-request file paths. Open only the fixed loopback start page printed by
 the process. The request fails closed unless the opaque subject is a current member
-of that workspace. Google returns the authorization result with `form_post`; the
-worker validates state, PKCE, signed issuer/audience/nonce claims and exact scopes,
-then encrypts the refresh material and creates the private binding. No credential
-is printed or accepted through chat, argv, a URL, logs, or audit.
+of that workspace. In OpenClaw WebUI, `google_workspace_connect` is called only
+after an inline structured multi-select. The installed pinned gog catalog supplies
+the choices: 22 default user OAuth services plus separately selected Photos Picker.
+The loopback page confirms those actor-bound choices before leaving for Google.
+The CLI command below remains an administrator fallback and renders the same catalog.
+
+Admin, Groups, and Keep are catalogued but disabled in user OAuth onboarding because
+they require a Workspace service account and domain-wide delegation. Tidebroker does
+not mislabel gog's `all` alias: it means the 22 default user OAuth services, not all
+26 catalog entries. Google returns the authorization result with `form_post`; the worker validates
+CSRF, state, PKCE, signed issuer/audience/nonce claims, and exact scopes, then
+encrypts the refresh material and creates the private binding. No credential is
+printed or accepted through chat, argv, a URL, logs, or audit.
 
 ```bash
 tidebroker-worker --connect-google /etc/tidebroker/worker.json /etc/tidebroker/connect-google.json
@@ -240,11 +282,20 @@ and delete use `sendUpdates=none` because the approval hook cannot safely reveal
 all existing attendees who Google might otherwise notify. Update approvals still
 display every proposed field, including attendee-list changes.
 
-Google consent uses `calendar.events` plus read-only CalendarList and Calendars
-metadata scopes required by gog's timezone/calendar resolution. Existing read-only
-connections must reconnect once after upgrading; no deployment may silently
-upgrade an existing credential's scope. Reconnecting increments the credential
-generation so pre-reconnect grants cannot become valid again.
+Google consent is service-aware. Tidebroker requests exactly the union of scopes
+reported by the pinned installed gog binary for the services selected before the
+browser handoff. Google consent does not support safely unchecking individual scopes,
+so scope shaping happens in the inline picker. Existing connections must reconnect
+to change their authorized services; no deployment may silently broaden an existing
+credential's scope.
+Reconnect increments the credential generation so pre-reconnect grants cannot
+become valid again.
+
+Authorization does not grant arbitrary command execution. Calendar, Gmail, and the
+reviewed metadata-only Drive/Docs/Sheets operations map to fixed Tidebroker actions;
+other authorized services produce a valid encrypted account binding with no agent
+actions until a bounded adapter is installed. No generic gog command or shell
+surface is exposed.
 
 The user OAuth credential never requests `cloud-platform` and Tidebroker does
 not expose Google Cloud project-administration tools. Enable required APIs using
@@ -268,6 +319,18 @@ as untrusted, and projected through backend/command-specific closed schemas.
 Unknown `gog` fields are rejected. Attachments are not downloaded or exposed.
 Direct Google and OAuth HTTP bodies are consumed through a streaming byte limiter
 that cancels the response as soon as the configured threshold is crossed.
+
+## Drive, Docs, and Sheets metadata
+
+The external-gog backend exposes `google_drive_files_list`,
+`google_docs_document_metadata`, and `google_sheets_spreadsheet_metadata` only
+after their service was selected during OAuth onboarding. These operations are
+read-only and use exact `gogcli v0.37.0` projections: Drive returns only opaque
+file IDs and MIME types, Docs returns opaque file/document IDs, MIME type, and an
+optional revision ID, and Sheets returns only the opaque spreadsheet ID. Titles,
+document bodies, cell values, uploads, sharing, and mutations are not exposed.
+Enable `drive.googleapis.com`, `docs.googleapis.com`, and
+`sheets.googleapis.com` in the OAuth client's Google Cloud project before use.
 
 ## Provider egress isolation
 

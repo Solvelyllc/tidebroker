@@ -47,6 +47,9 @@ today are Google-focused:
 - **Gmail** — bounded search/read (provider content marked untrusted) and
   exact-approval plain-text sending.
 - **Google Calendar** — fixed read operations with strict projections.
+- **Google Drive, Docs, and Sheets** — read-only, metadata-only operations with
+  pinned `gogcli` projections; no document bodies, cell values, names, uploads,
+  sharing, or mutations.
 
 Google access runs through one of two administrator-selected backends — there is no
 automatic fallback, and the choice is never model-visible:
@@ -54,16 +57,34 @@ automatic fallback, and the choice is never model-visible:
 - **Direct Google APIs** — fixed `https://www.googleapis.com` paths, header-only
   access tokens, redirects disabled, bounded JSON. Gmail HTML, attachments, raw
   MIME, and arbitrary headers are never returned.
-- **External `gog` binary** (Linux only) — an externally provisioned,
+- **External [`gog`](https://gogcli.sh/) binary** (Linux only) — an externally provisioned,
   owner/mode/SHA-256-verified binary with a private state root, closed child
   environment, and exact command allowlists. Tidebroker does not bundle `gog`;
   the included `scripts/gog-safety-profile.yaml` is a reproducible recipe for
-  administrators who choose this backend.
+  administrators who choose this backend. Review and build it from the official
+  [`openclaw/gogcli` repository](https://github.com/openclaw/gogcli).
 
-OAuth connection is a one-shot, worker-owned loopback flow using PKCE, single-use
-state, and signed OIDC validation. The plugin never activates Google access without
-deployment-owned configuration, an exact trusted actor/workspace binding, and a
-connected worker-private account.
+OAuth connection starts with an actor-bound inline WebUI Q&A/multi-select and
+continues in a one-shot, worker-owned browser flow. With the external `gog`
+backend, Tidebroker discovers the installed CLI's service catalog at startup and
+offers all 22 default user OAuth services. `photospicker` is a separate explicit
+opt-in. Google Workspace `admin`, `groups`, and `keep` are shown as separate
+service-account/domain-wide-delegation setup paths because gog does not authorize
+them through user OAuth.
+The flow uses PKCE, CSRF protection, single-use state, and signed OIDC validation.
+The plugin never activates Google access without deployment-owned configuration,
+an exact trusted actor/workspace binding, and a connected worker-private account.
+Reconnecting is how a user expands or reduces an existing grant.
+
+OAuth authorization and agent execution are deliberately separate. Users may
+authorize any available gog user service during onboarding, including Drive,
+Docs, Sheets, Tasks, Chat, Meet, YouTube, and Analytics. A selected service becomes
+agent-callable only when Tidebroker also ships a reviewed, bounded adapter for it.
+Tidebroker never exposes a generic gog shell command.
+
+Public release evidence covers the executable command surface only. Services marked
+authorization-only are not advertised as working agent tools, receive zero actions,
+and do not become executable merely because their OAuth scopes were granted.
 
 ## Roadmap
 
@@ -110,13 +131,13 @@ Unix-socket protocol with bounded frames, timeouts, and concurrency.
 
 Public SDK modules are available from `@solvely/tidebroker/sdk`:
 
-- `core` — identity, opaque subject mapping, trusted run binding, policy, connector contracts
+- `core` — identity, opaque subject mapping, trusted run binding, policy, and provider-neutral capability contracts
 - `mcp` — requester-scoped MCP resolver adapter
 - `cli` — safe CLI binding, allowlist, and execution primitives
 - `credentials` — encrypted records, OAuth custody, and revocation
 - `durable` — private atomic adapters for credentials, metadata, OAuth, replay, outcomes, audit
 - `worker` — authenticated grants, replay prevention, isolated dispatch
-- `connectors` — fixed Google Calendar and Gmail operations with worker-owned backend selection
+- `connectors` — provider-owned capability catalogs and fixed operations; Google Calendar/Gmail are the first implementation
 - `audit` — closed-schema events and sink contracts
 
 ## Security model
@@ -133,6 +154,7 @@ Full details:
 - [Threat model](docs/THREAT-MODEL.md)
 - [Audit event contract](docs/AUDIT-EVENTS.md)
 - [Worker deployment protocol](docs/WORKER-PROTOCOL.md)
+- [Connector capability contract](docs/CONNECTOR-CAPABILITIES.md)
 - [Production activation](docs/DEPLOYMENT.md)
 
 ## Development

@@ -4,6 +4,9 @@ description: Fixed Google command surface for the isolated Tidebroker credential
 version: true
 schema: true
 
+auth:
+  services: true
+
 gmail:
   search: true
   get: true
@@ -16,6 +19,15 @@ calendar:
   create: true
   update: true
   delete: true
+
+drive:
+  ls: true
+
+docs:
+  info: true
+
+sheets:
+  metadata: true
 
 locked-flags:
   no-input: true

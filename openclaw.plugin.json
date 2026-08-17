@@ -39,14 +39,15 @@
         "type": "array", "minItems": 1,
         "items": {
           "type": "object", "additionalProperties": false,
-          "required": ["subjectId", "workspaceId", "accountId", "credentialHandle", "credentialGeneration", "allowedActions", "enabled"],
+          "required": ["subjectId", "workspaceId", "connectorId", "accountId", "credentialHandle", "credentialGeneration", "allowedActions", "enabled"],
           "properties": {
             "subjectId": { "type": "string", "pattern": "^usr_[A-Za-z0-9_-]{16,96}$" },
             "workspaceId": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]{6,96}$" },
+            "connectorId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
             "accountId": { "type": "string", "minLength": 1 },
             "credentialHandle": { "type": "string", "minLength": 1 },
             "credentialGeneration": { "type": "integer", "minimum": 1 },
-            "allowedActions": { "type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": { "enum": ["calendar.events.list", "calendar.events.create", "calendar.events.update", "calendar.events.delete", "gmail.messages.search", "gmail.messages.get", "gmail.messages.send"] } },
+            "allowedActions": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+){1,15}$" } },
             "enabled": { "type": "boolean" }
           }
         }
@@ -60,17 +61,24 @@
   "contracts": {
     "tools": [
       "tidebroker_status",
+      "google_workspace_connect",
       "google_calendar_events_list",
       "google_calendar_event_create",
       "google_calendar_event_update",
       "google_calendar_event_delete",
       "google_gmail_messages_search",
       "google_gmail_message_get",
-      "google_gmail_message_send"
+      "google_gmail_message_send",
+      "google_drive_files_list",
+      "google_docs_document_metadata",
+      "google_sheets_spreadsheet_metadata"
     ]
   },
   "toolMetadata": {
     "tidebroker_status": {
+      "optional": true
+    },
+    "google_workspace_connect": {
       "optional": true
     },
     "google_calendar_events_list": {
@@ -92,6 +100,15 @@
       "optional": true
     },
     "google_gmail_message_send": {
+      "optional": true
+    },
+    "google_drive_files_list": {
+      "optional": true
+    },
+    "google_docs_document_metadata": {
+      "optional": true
+    },
+    "google_sheets_spreadsheet_metadata": {
       "optional": true
     }
   }
