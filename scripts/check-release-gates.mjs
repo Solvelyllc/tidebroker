@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 const REQUIRED_CHECKS = Object.freeze({
   osIsolation: Object.freeze(["worker-user-separated", "credential-files-isolated", "provider-egress-restricted"]),
-  realProviderSmoke: Object.freeze(["calendar-read", "gmail-read", "google-capability-shapes", "approved-write", "unmapped-requester-denied"]),
+  realProviderSmoke: Object.freeze(["calendar-read", "gmail-read", "google-executable-capability-shapes", "approved-write", "unmapped-requester-denied"]),
   mcpQuarantine: Object.freeze(["schema-fingerprint-match", "schema-drift-quarantined", "unknown-tool-denied"]),
 });
 const fail = () => { throw new Error("RELEASE_GATES_NOT_PROVEN"); };

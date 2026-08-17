@@ -32,6 +32,7 @@
     "evidence:mcp": "npm run build && node ./scripts/collect-mcp-quarantine-evidence.mjs",
     "evidence:os": "node ./scripts/collect-os-isolation-evidence.mjs",
     "evidence:provider": "node ./scripts/record-real-provider-evidence.mjs",
+    "smoke:google-executable": "node ./scripts/live-google-executable-capability-smoke.mjs",
     "evidence:summary": "node ./scripts/build-release-evidence-summary.mjs",
     "release:artifacts": "npm run check && node ./scripts/build-release-artifacts.mjs",
     "release:check": "node ./scripts/check-release-gates.mjs",

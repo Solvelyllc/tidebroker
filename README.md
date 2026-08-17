@@ -82,6 +82,10 @@ Docs, Sheets, Tasks, Chat, Meet, YouTube, and Analytics. A selected service beco
 agent-callable only when Tidebroker also ships a reviewed, bounded adapter for it.
 Tidebroker never exposes a generic gog shell command.
 
+Public release evidence covers the executable command surface only. Services marked
+authorization-only are not advertised as working agent tools, receive zero actions,
+and do not become executable merely because their OAuth scopes were granted.
+
 ## Roadmap
 
 The reusable core — actor/workspace/account isolation, encrypted credential

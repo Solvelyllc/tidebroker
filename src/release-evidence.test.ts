@@ -7,7 +7,7 @@ import { verifyReleaseEvidence } from "../scripts/check-release-gates.mjs";
 
 const required = {
   osIsolation: ["worker-user-separated", "credential-files-isolated", "provider-egress-restricted"],
-  realProviderSmoke: ["calendar-read", "gmail-read", "google-capability-shapes", "approved-write", "unmapped-requester-denied"],
+  realProviderSmoke: ["calendar-read", "gmail-read", "google-executable-capability-shapes", "approved-write", "unmapped-requester-denied"],
   mcpQuarantine: ["schema-fingerprint-match", "schema-drift-quarantined", "unknown-tool-denied"],
 } as const;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
