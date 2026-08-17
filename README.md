@@ -2,170 +2,254 @@
 
 # Tidebroker
 
-**Approval-gated credential brokerage and actor-scoped connectors for OpenClaw.**
+[![Release](https://img.shields.io/github/v/release/Solvelyllc/Tidebroker)](https://github.com/Solvelyllc/Tidebroker/releases/latest)
+[![CI](https://github.com/Solvelyllc/Tidebroker/actions/workflows/ci.yml/badge.svg)](https://github.com/Solvelyllc/Tidebroker/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Solvelyllc/Tidebroker/actions/workflows/codeql.yml/badge.svg)](https://github.com/Solvelyllc/Tidebroker/actions/workflows/codeql.yml)
+[![License](https://img.shields.io/github/license/Solvelyllc/Tidebroker)](LICENSE)
 
-Tidebroker is an OpenClaw plugin foundation that binds CLI, MCP, and HTTP connector
-execution to the human who initiated the current turn. It lets an agent use real
-provider accounts — calendar, email, and more — without ever giving the model
-ambient access to credentials.
+Tidebroker connects OpenClaw to user-owned provider accounts without exposing credentials to the model. It binds every operation to the trusted requester, workspace, connector, and account. If Tidebroker cannot resolve one exact binding, it denies the operation.
 
-The central invariant is simple:
+Use this README to install Tidebroker, configure its isolated worker, connect Google Workspace, and verify the deployment. See the linked reference documents for production hardening and protocol details.
 
-```text
-trusted requester + selected workspace + connector -> one exact account binding
+## What Tidebroker does
+
+Tidebroker separates agent tools from provider credentials. OpenClaw receives bounded tools, while an isolated worker stores encrypted OAuth credentials and executes reviewed provider operations.
+
+The current release supports these Google Workspace operations:
+
+| Service | Available operations | Write policy |
+| --- | --- | --- |
+| Google Calendar | List, create, update, and delete events | Each mutation requires one exact approval |
+| Gmail | Search, read, and send plain-text messages | Each send requires one exact approval |
+| Google Drive | List opaque file IDs and MIME types | Read-only |
+| Google Docs | Read opaque document metadata | Read-only |
+| Google Sheets | Read an opaque spreadsheet ID | Read-only |
+
+Tidebroker can authorize additional services exposed by an installed `gogcli` release. Authorization does not make those services callable. A service needs a reviewed Tidebroker adapter, strict output projection, policy, and tests before OpenClaw can use it.
+
+## Requirements
+
+Prepare these components before installation:
+
+- OpenClaw `2026.8.1` or newer
+- Node.js supported by your OpenClaw release
+- A dedicated operating-system account for `tidebroker-worker`
+- A Google OAuth client with the required redirect URI and application programming interfaces (APIs) enabled
+- Owner-only files for encryption, grant authentication, and OAuth client configuration
+- Linux when you use the external `gogcli` backend
+
+The production worker runs outside the OpenClaw Gateway. Do not run it inside the model process or store provider credentials in OpenClaw configuration.
+
+## Install the plugin and worker
+
+Tidebroker `v1.1.3` is published as an attested GitHub release artifact. Download the package and checksum file from the release, verify the package, then install it through OpenClaw's managed package path.
+
+```bash
+release_base="https://github.com/Solvelyllc/Tidebroker/releases/download"
+release_url="$release_base/v1.1.3"
+curl -LO "$release_url/solvely-tidebroker-1.1.3.tgz"
+curl -LO "$release_url/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS
+
+openclaw plugins install npm-pack:./solvely-tidebroker-1.1.3.tgz
+openclaw plugins enable tidebroker
+openclaw plugins inspect tidebroker --runtime --json
 ```
 
-There is no global, last-used, other-user, or ambient credential fallback.
+Install the worker executable from the same verified artifact. Choose an npm prefix that places `tidebroker-worker` at the path used by your service unit.
 
-## Why Tidebroker
-
-Most agent integrations quietly widen access: a shared token, a "default" account,
-a credential sitting in an environment variable. Tidebroker is built the other way
-around — fail closed, and only ever act as the exact person who asked.
-
-- **Exact identity, every time** — host-context identities map to
-  deployment-issued opaque subjects, with immutable trusted workspace bindings and
-  repeated membership checks.
-- **Encrypted credential custody** — OAuth tokens live in an isolated,
-  out-of-process credential worker under its own OS/container boundary. Codes and
-  tokens never reach chat, argv, logs, audit events, URLs, or tool results.
-- **Short-lived, single-use grants** — workers authenticate with action- and
-  generation-bound grants with replay protection; nothing long-lived crosses the
-  plugin boundary.
-- **Exact approvals for mutations** — writes (like sending email) require explicit
-  human approval of the exact action.
-- **Audit and revocation** — closed-schema audit events, sink readiness checks,
-  and token revocation are first-class, not bolted on.
-- **Shell-free execution** — exact absolute binaries, no `PATH` lookup, no
-  inherited environment, bounded output, and deterministic errors.
-
-## Current connectors
-
-Tidebroker's security architecture is provider-agnostic. The connectors implemented
-today are Google-focused:
-
-- **Gmail** — bounded search/read (provider content marked untrusted) and
-  exact-approval plain-text sending.
-- **Google Calendar** — fixed read operations with strict projections.
-- **Google Drive, Docs, and Sheets** — read-only, metadata-only operations with
-  pinned `gogcli` projections; no document bodies, cell values, names, uploads,
-  sharing, or mutations.
-
-Google access runs through one of two administrator-selected backends — there is no
-automatic fallback, and the choice is never model-visible:
-
-- **Direct Google APIs** — fixed `https://www.googleapis.com` paths, header-only
-  access tokens, redirects disabled, bounded JSON. Gmail HTML, attachments, raw
-  MIME, and arbitrary headers are never returned.
-- **External [`gog`](https://gogcli.sh/) binary** (Linux only) — an externally provisioned,
-  owner/mode/SHA-256-verified binary with a private state root, closed child
-  environment, and exact command allowlists. Tidebroker does not bundle `gog`;
-  the included `scripts/gog-safety-profile.yaml` is a reproducible recipe for
-  administrators who choose this backend. Review and build it from the official
-  [`openclaw/gogcli` repository](https://github.com/openclaw/gogcli).
-
-OAuth connection starts with an actor-bound inline WebUI Q&A/multi-select and
-continues in a one-shot, worker-owned browser flow. With the external `gog`
-backend, Tidebroker discovers the installed CLI's service catalog at startup and
-offers all 22 default user OAuth services. `photospicker` is a separate explicit
-opt-in. Google Workspace `admin`, `groups`, and `keep` are shown as separate
-service-account/domain-wide-delegation setup paths because gog does not authorize
-them through user OAuth.
-The flow uses PKCE, CSRF protection, single-use state, and signed OIDC validation.
-The plugin never activates Google access without deployment-owned configuration,
-an exact trusted actor/workspace binding, and a connected worker-private account.
-Reconnecting is how a user expands or reduces an existing grant.
-
-OAuth authorization and agent execution are deliberately separate. Users may
-authorize any available gog user service during onboarding, including Drive,
-Docs, Sheets, Tasks, Chat, Meet, YouTube, and Analytics. A selected service becomes
-agent-callable only when Tidebroker also ships a reviewed, bounded adapter for it.
-Tidebroker never exposes a generic gog shell command.
-
-Public release evidence covers the executable command surface only. Services marked
-authorization-only are not advertised as working agent tools, receive zero actions,
-and do not become executable merely because their OAuth scopes were granted.
-
-## Roadmap
-
-The reusable core — actor/workspace/account isolation, encrypted credential
-custody, OAuth state and token lifecycle, short-lived single-use grants, exact
-approvals for mutations, audit and revocation, and isolated worker execution — is
-deliberately provider-agnostic.
-
-Adding **Microsoft 365, GitHub, Slack, Stripe**, or other OAuth/API providers does
-not require rebuilding that security layer. Each new provider needs:
-
-1. a provider adapter;
-2. provider-specific scopes and policies;
-3. sanitized output projections;
-4. operation-specific tests.
-
-Contributions and provider requests are welcome — see the issues page.
-
-## Architecture
-
-```text
-OpenClaw trusted requester context
-                |
-                v
-            Tidebroker
-       | identity + policy
-       | connector resolution
-       | closed-schema audit
-       +------------------------+
-       |                        |
-       v                        v
-requester-scoped MCP   mode-0600 Unix socket
-       |                        |
-       +------------+-----------+
-                    v
-          isolated credential worker
-          + encrypted credentials
-          + durable replay/outcomes/audit
+```bash
+sudo npm install --global ./solvely-tidebroker-1.1.3.tgz
+command -v tidebroker-worker
 ```
 
-The credential worker is deployed out of process as a runnable `tidebroker-worker`
-service, with secure key files, health checks, graceful shutdown, and a mode-`0600`
-Unix-socket protocol with bounded frames, timeouts, and concurrency.
+The release also includes a Software Package Data Exchange (SPDX) software bill of materials, provenance, and GitHub attestations. Review them on the [v1.1.3 release page](https://github.com/Solvelyllc/Tidebroker/releases/tag/v1.1.3).
 
-Public SDK modules are available from `@solvely/tidebroker/sdk`:
+## Configure the worker
 
-- `core` — identity, opaque subject mapping, trusted run binding, policy, and provider-neutral capability contracts
-- `mcp` — requester-scoped MCP resolver adapter
-- `cli` — safe CLI binding, allowlist, and execution primitives
-- `credentials` — encrypted records, OAuth custody, and revocation
-- `durable` — private atomic adapters for credentials, metadata, OAuth, replay, outcomes, audit
-- `worker` — authenticated grants, replay prevention, isolated dispatch
-- `connectors` — provider-owned capability catalogs and fixed operations; Google Calendar/Gmail are the first implementation
-- `audit` — closed-schema events and sink contracts
+The worker owns credentials, OAuth state, account bindings, replay state, outcomes, and its audit journal. Configure it with owner-controlled paths and opaque deployment identifiers.
 
-## Security model
+1. Create a dedicated worker account and private state directories
+2. Create separate 32-byte encryption and grant-authentication keys with the host's secret manager
+3. Store the Google OAuth client ID and secret in owner-only files
+4. Create `/etc/tidebroker/worker.json` from the [worker configuration example](docs/DEPLOYMENT.md#worker-configuration)
+5. Install the `tidebroker-worker` service from the [systemd example](docs/DEPLOYMENT.md#worker-service)
+6. Start the worker and validate its socket
 
-OpenClaw plugins execute trusted code inside the Gateway. Tidebroker prevents
-accidental or model-directed cross-account selection; it does not make a shared
-Gateway safe against a malicious host administrator or modified plugin runtime.
-Strong credential isolation requires the out-of-process worker with its own
-OS/container boundary.
+Run the worker check after provisioning:
 
-Full details:
+```bash
+tidebroker-worker --check /etc/tidebroker/worker.json
+systemctl enable --now tidebroker-worker
+systemctl status tidebroker-worker
+```
+
+Use a mode-`0600` owner socket or a mode-`0660` group socket. If you use group access, limit membership to the worker and OpenClaw Gateway service accounts.
+
+## Choose a Google backend
+
+Select one backend in the worker configuration. Tidebroker never switches backends automatically.
+
+### Use direct Google APIs
+
+Choose `direct` when you need Calendar and Gmail without an external command-line interface (CLI):
+
+```json
+{
+  "googleExecution": {
+    "backend": "direct",
+    "timeoutMs": 30000,
+    "maxResponseBytes": 1048576
+  }
+}
+```
+
+Direct mode uses fixed Google origins and paths. It disables redirects and returns bounded projections instead of raw provider responses.
+
+### Use external gogcli
+
+Choose `gog` when you need the reviewed Drive, Docs, and Sheets adapters or the broader Google authorization catalog. Tidebroker does not bundle `gogcli` code or binaries.
+
+1. Review [`gogcli`](https://gogcli.sh/) and its [source repository](https://github.com/openclaw/gogcli)
+2. Build a restricted binary with [`scripts/gog-safety-profile.yaml`](scripts/gog-safety-profile.yaml)
+3. Install the binary in an owner-controlled, non-writable path
+4. Record its lowercase SHA-256 digest in the worker configuration
+5. Treat every `gogcli` upgrade as a compatibility-gated deployment change
+
+Configure the reviewed binary:
+
+```json
+{
+  "googleExecution": {
+    "backend": "gog",
+    "executablePath": "/usr/local/lib/tidebroker/gog-safe",
+    "executableSha256": "reviewed_lowercase_sha256_here",
+    "configRoot": "/var/lib/tidebroker-worker/gog",
+    "httpsProxy": "http://127.0.0.1:3128",
+    "timeoutMs": 30000,
+    "maxOutputBytes": 1048576
+  }
+}
+```
+
+The current adapter contract targets `gogcli v0.37.0`. Tidebroker rejects an unexpected binary digest, command, service, or response shape.
+
+## Configure OpenClaw
+
+OpenClaw needs the worker socket, a copy of the grant-authentication key, trusted identity mappings, and an agent-to-workspace mapping. It does not receive provider tokens or encryption keys.
+
+Add the Tidebroker plugin settings from the [OpenClaw activation example](docs/DEPLOYMENT.md#openclaw-activation), then allow the tools you want the agent to use. Keep `workerAccountDiscovery` enabled unless your deployment manages non-secret account projections itself.
+
+Restart the Gateway after changing plugin configuration:
+
+```bash
+openclaw plugins inspect tidebroker --runtime --json
+openclaw gateway restart
+openclaw gateway status --deep --require-rpc
+```
+
+Tidebroker exposes optional tools only during a trusted interactive turn with an exact subject, workspace, connector, and account binding. Background jobs, public sessions, missing identities, and ambiguous bindings receive no usable provider tool.
+
+## Connect Google Workspace
+
+Connect each person separately. Never share one Tidebroker subject, Google binding, or approval identity between collaborators.
+
+### Connect from OpenClaw WebUI
+
+1. Ask OpenClaw to connect Google Workspace
+2. Select the services to authorize in the inline picker
+3. Open the worker-owned loopback URL
+4. Complete Google consent in the browser
+5. Close the page after Tidebroker confirms encrypted credential custody
+
+The picker controls OAuth scopes. Reconnect the account to add or remove authorized services. Tidebroker does not silently broaden an existing grant.
+
+### Connect from the host
+
+Create an owner-only request with the opaque subject, workspace, and trusted membership path. Then start the same one-shot browser flow from the worker:
+
+```bash
+tidebroker-worker --connect-google \
+  /etc/tidebroker/worker.json \
+  /etc/tidebroker/connect-google.json
+```
+
+Open only the loopback URL printed by the worker. Never paste an authorization code, token, client secret, or credential into chat or a shell argument.
+
+## Verify the deployment
+
+Verify the worker, plugin, identity binding, provider reads, and approval path before regular use.
+
+1. Confirm `tidebroker-worker --check` succeeds
+2. Confirm `openclaw plugins inspect tidebroker --runtime --json` lists the expected tools
+3. Run a Calendar list from a trusted user turn
+4. Run a Gmail search from the same user turn
+5. Run Drive, Docs, and Sheets metadata reads when you use the `gog` backend
+6. Confirm an unmapped user receives no Tidebroker tools
+7. Confirm a write displays the exact approval details before execution
+
+Read-only calls must return bounded projections. Provider text is marked as untrusted content. A failed account lookup must return an error instead of using another account.
+
+## Revoke a connection
+
+Create an owner-only revocation request with the worker-private credential handle, then run:
+
+```bash
+tidebroker-worker --revoke \
+  /etc/tidebroker/worker.json \
+  /etc/tidebroker/revoke-google.json
+```
+
+Local revocation always increments the credential generation and disables discovery. If Google cannot confirm provider revocation, the old local credential remains unusable.
+
+## Understand the security boundary
+
+Tidebroker protects against accidental or model-directed cross-account selection. It does not protect against a malicious host administrator or a modified OpenClaw runtime.
+
+The deployment relies on these controls:
+
+- Exact requester, workspace, connector, and account resolution
+- Encrypted credentials in an isolated worker
+- Short-lived, single-use grants with replay protection
+- Exact, single-use approvals for mutations
+- Fixed command and network allowlists
+- Strict input and output schemas
+- Durable audit, intent, and outcome journals
+- Fail-closed behavior when identity, storage, policy, or provider state is uncertain
+
+For production hardening, read:
 
 - [Security architecture](docs/SECURITY-ARCHITECTURE.md)
 - [Threat model](docs/THREAT-MODEL.md)
-- [Audit event contract](docs/AUDIT-EVENTS.md)
-- [Worker deployment protocol](docs/WORKER-PROTOCOL.md)
-- [Connector capability contract](docs/CONNECTOR-CAPABILITIES.md)
 - [Production activation](docs/DEPLOYMENT.md)
+- [Worker protocol](docs/WORKER-PROTOCOL.md)
+- [Audit event contract](docs/AUDIT-EVENTS.md)
+- [Connector capability contract](docs/CONNECTOR-CAPABILITIES.md)
 
-## Development
+## Add another provider
 
-Requirements: Node.js supported by the target OpenClaw release, OpenClaw
-`>=2026.8.1`, and npm.
+Tidebroker core is provider-neutral. A connector owns its provider-specific behavior and must define:
+
+- Credential and authorization strategy
+- Capability and action identifiers
+- Required permissions
+- Input and output schemas
+- Mutation approval policy
+- Bounded projections
+- Negative isolation and shape-drift tests
+
+Start with the [connector capability contract](docs/CONNECTOR-CAPABILITIES.md). Do not add provider branches to broker core or expose a generic shell or HTTP escape hatch.
+
+## Develop Tidebroker
+
+Install dependencies and run the complete validation suite:
 
 ```bash
 npm install
-npm run check      # build + package validation + tests
+npm run check
 ```
+
+Run individual checks while developing:
 
 ```bash
 npm test
@@ -174,33 +258,12 @@ npm run plugin:validate
 npm pack --dry-run
 ```
 
-When developing against a host build newer than the public npm package, link that
-exact host package without saving it: `npm link --no-save openclaw`.
+`npm pack` runs the build, package validation, shape self-tests, and test suite through `prepack`. Tests do not connect live credentials or publish artifacts.
 
-`npm pack` runs the full build, validation, and test suite through `prepack`, so a
-clean checkout cannot produce a package missing its runtime files. The release
-artifact is controlled by `package.json#files`; workspace files, runtime state,
-credentials, tests, and TypeScript sources are excluded. No publication or live
-credential connection is performed by this repository's test suite.
+## Release a version
 
-### Releasing
-
-Before a public release, push the exact release commit to a public source
-repository and test the packed artifact through OpenClaw's managed `npm-pack:`
-install path. `npm publish` is blocked unless `TIDEBROKER_RELEASE_EVIDENCE_PATH`
-names an owner-only evidence file bound to the exact `HEAD`; validate with
-`npm run release:check`, then dry-run the ClawHub publish:
-
-```bash
-clawhub package validate . --openclaw /path/to/openclaw
-clawhub package publish . \
-  --family code-plugin \
-  --owner solvely \
-  --source-repo <owner>/<repository> \
-  --source-commit "$(git rev-parse HEAD)" \
-  --dry-run
-```
+Public releases require exact-commit evidence, protected CI and CodeQL checks, a packed-artifact rehearsal, checksums, an SPDX software bill of materials, and provenance attestations. Follow [the public release procedure](docs/PUBLIC-RELEASE.md).
 
 ## License
 
-[Apache-2.0](LICENSE)
+Tidebroker is licensed under [Apache-2.0](LICENSE).
