@@ -90,7 +90,19 @@ jobs:
             npm run evidence:summary
           TIDEBROKER_RELEASE_EVIDENCE_PATH="$evidence_dir/summary.json" npm run release:check
       - name: Build distributable, SBOM, and checksums
-        run: node ./scripts/build-release-artifacts.mjs "$RUNNER_TEMP/tidebroker-release"
+        id: artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/tidebroker-release"
+          node ./scripts/build-release-artifacts.mjs "$output_dir"
+          package_version="$(node -p 'require("./package.json").version')"
+          tarball_path="$output_dir/solvely-tidebroker-${package_version}.tgz"
+          sbom_path="$output_dir/tidebroker-${package_version}.spdx.json"
+          test -f "$tarball_path"
+          test -f "$sbom_path"
+          printf 'tarball_path=%s\n' "$tarball_path" >> "$GITHUB_OUTPUT"
+          printf 'sbom_path=%s\n' "$sbom_path" >> "$GITHUB_OUTPUT"
       - name: Verify release bundle
         shell: bash
         env:
@@ -109,8 +121,8 @@ jobs:
         id: sbom_attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/tidebroker-release/*.tgz
-          sbom-path: ${{ runner.temp }}/tidebroker-release/*.spdx.json
+          subject-path: ${{ steps.artifacts.outputs.tarball_path }}
+          sbom-path: ${{ steps.artifacts.outputs.sbom_path }}
       - name: Add verification bundles
         shell: bash
         env:
