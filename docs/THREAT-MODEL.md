@@ -110,7 +110,7 @@ guarantee, but out-of-process credential custody should reduce blast radius.
 | Exception/log leaks request or environment | Reason codes, no exception-object serialization, no headers/URLs/commands/payloads | Sink-capture tests scan all error paths |
 | Audit API used as secret exfiltration | Closed schema, registry-issued opaque identifiers, enumerated reason codes, reject unknown keys | Runtime tests reject token/header/error/metadata fields; production registry prevents arbitrary identifiers |
 | Malicious connector/plugin reads secrets | Treat plugins as trusted code; minimize installed plugins; external secret broker and scoped worker | Package review, provenance, capability review |
-| Compromised update changes policy | Locked dependencies, immutable signed/provenanced releases, staged compatibility tests and rollback | Reproducible artifact checks; upgrade isolation suite |
+| Compromised update changes policy | Locked dependencies, protected and scanned source, immutable OIDC-provenanced releases, staged compatibility tests and rollback | Reproducible artifact checks; upgrade isolation suite |
 | Revoked credential falls back to company account | Generation invalidation and absolute no-fallback rule | Revocation test returns denial despite other usable accounts |
 | Prompt injection requests destructive action | Provider content remains untrusted; per-action policy and host-owned approval for writes | Injected text cannot alter binding or bypass approval |
 

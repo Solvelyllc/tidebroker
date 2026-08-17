@@ -304,9 +304,9 @@ passes. Publication locks the tag and assets and creates GitHub's release
 attestation. The setting is not retroactive; releases before `v1.1.2` do not gain
 this guarantee.
 
-The executable evidence collectors, signed-source requirements, CodeQL activation,
-artifact/SBOM/checksum workflow, and public-visibility review are documented in
-`docs/PUBLIC-RELEASE.md`.
+The executable evidence collectors, protected-source requirements, CodeQL
+activation, keyless artifact/SBOM/provenance workflow, and public-visibility
+review are documented in `docs/PUBLIC-RELEASE.md`.
 
 Sending accepts address-only recipients, one subject, and a bounded plain-text
 body. It requires a critical `allow-once` approval bound to the exact requester,
